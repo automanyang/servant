@@ -1,24 +1,25 @@
-// -- export.rs --
+// -- gateway.rs --
 
 use {
-    crate::{self as servant, AdapterRegister, Oid, ServantRegister},
+    crate::{self as servant, AdapterRegister, Oid, ServantRegister, Context},
     async_std::task,
 };
 
 // --
 
 #[servant_macro::query_interface]
-pub trait Export {
+pub trait Gateway {
     fn export_servants(&self) -> Vec<Oid>;
     fn export_report_servants(&self) -> Vec<Oid>;
     fn shutdown(&self, passcode: usize);
+    fn login(&self, name: String, password: String) -> Context;
 }
 
 // --
 
-pub struct ExportEntry;
+pub struct GatewayEntry;
 
-impl Export for ExportEntry {
+impl Gateway for GatewayEntry {
     fn export_servants(&self) -> Vec<Oid> {
         ServantRegister::instance().export_servants()
     }
@@ -29,5 +30,8 @@ impl Export for ExportEntry {
         task::block_on(async {
             AdapterRegister::instance().clean(passcode).await;
         });
+    }
+    fn login(&self, _name: String, _password: String) -> Context {
+        Context::new()
     }
 }

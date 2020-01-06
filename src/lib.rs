@@ -33,13 +33,14 @@ mod adapter;
 #[cfg(feature = "terminal")]
 mod terminal;
 
-#[cfg(feature = "default_query")]
-mod export;
+#[cfg(feature = "default_gateway")]
+mod gateway;
 
 // --
 
 pub use servant::{
-    NotifyServant, Oid, ReportServant, Servant, ServantError, ServantRegister, ServantResult,
+    Context, NotifyServant, Oid, ReportServant, Servant, ServantError, ServantRegister,
+    ServantResult,
 };
 
 #[cfg(feature = "adapter")]
@@ -51,5 +52,5 @@ pub use {
 #[cfg(feature = "terminal")]
 pub use terminal::Terminal;
 
-#[cfg(feature = "default_query")]
-pub use export::ExportProxy;
+#[cfg(feature = "default_gateway")]
+pub use gateway::GatewayProxy;

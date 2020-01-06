@@ -3,7 +3,7 @@
 use {
     super::{
         drop_guard::DropGuard,
-        servant::{NotifyServant, Oid, Record, ServantResult},
+        servant::{Context, NotifyServant, Oid, Record, ServantResult},
     },
     async_std::{
         net::{TcpStream, ToSocketAddrs},
@@ -96,7 +96,7 @@ impl Terminal {
             Err("sender is none.".into())
         }
     }
-    pub async fn invoke(&self, oid: Option<Oid>, req: Vec<u8>) -> ServantResult<Vec<u8>> {
+    pub async fn invoke(&self, ctx: Option<Context>, oid: Option<Oid>, req: Vec<u8>) -> ServantResult<Vec<u8>> {
         let (mut tx, index, token) = {
             let mut g = self.0.lock().await;
             let tx = if let Some(tx) = g.sender.as_ref() {
@@ -117,6 +117,7 @@ impl Terminal {
             Ok(m) => {
                 let record = Record::Request {
                     id: index,
+                    ctx,
                     oid,
                     req,
                 };
@@ -236,5 +237,11 @@ impl Terminal {
         F: Fn(&str, &Terminal) -> T,
     {
         f(name, self)
+    }
+    pub fn proxy_with_context<T, F>(&self, ctx: Context, name: &str, f: F) -> T
+    where
+        F: Fn(Context, &str, &Terminal) -> T,
+    {
+        f(ctx, name, self)
     }
 }

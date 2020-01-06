@@ -129,17 +129,17 @@ impl Adapter {
                             warn!("{} dosen't exist.", &oid);
                         }
                     }
-                    Record::Request { id, oid, req } => {
+                    Record::Request { id, ctx, oid, req } => {
                         let ret: ServantResult<Vec<u8>> = if let Some(oid) = &oid {
                             if let Some(servant) = sr.find_servant(oid) {
-                                Ok(servant.lock().unwrap().serve(req))
+                                Ok(servant.lock().unwrap().serve(ctx, req))
                             } else {
                                 Err(format!("{} dosen't exist.", &oid).into())
                             }
                         } else {
                             if let Some(query) = sr.query_servant() {
                                 let mut q = query.lock().unwrap();
-                                Ok(q.serve(req))
+                                Ok(q.serve(ctx, req))
                             } else {
                                 Err("query servant dosen't exist.".into())
                             }

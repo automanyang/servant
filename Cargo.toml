@@ -21,9 +21,9 @@ invoke = ["servant-macro/invoke"]
 query = ["servant-macro/query"]
 notify = ["servant-macro/notify"]
 report = ["servant-macro/report"]
-default_query = ["query"]
+default_gateway = ["query"]
 
-default = ["default_query", "invoke", "adapter", "terminal"]
+default = ["default_gateway", "invoke", "adapter", "terminal"]
 full = ["default", "report", "notify"]
 
 [dependencies]

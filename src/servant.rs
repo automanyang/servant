@@ -60,16 +60,27 @@ impl std::fmt::Display for Oid {
 
 // --
 
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct Context;
+
+impl Context {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+// --
+
 lazy_static! {
     static ref REGISTER: ServantRegister = ServantRegister({
         Mutex::new(_ServantRegister {
             servants: HashMap::new(),
             report_servants: HashMap::new(),
-            #[cfg(feature = "default_query")]
-            query: Some(Arc::new(Mutex::new(super::export::ExportServant::new(
-                super::export::ExportEntry,
+            #[cfg(feature = "default_gateway")]
+            query: Some(Arc::new(Mutex::new(super::gateway::GatewayServant::new(
+                super::gateway::GatewayEntry,
             )))),
-            #[cfg(not(feature = "default_query"))]
+            #[cfg(not(feature = "default_gateway"))]
             query: None,
         })
     });
@@ -139,7 +150,7 @@ pub trait NotifyServant {
 pub trait Servant {
     fn name(&self) -> &str;
     fn category(&self) -> &'static str;
-    fn serve(&mut self, req: Vec<u8>) -> Vec<u8>;
+    fn serve(&mut self, ctx: Option<Context>, req: Vec<u8>) -> Vec<u8>;
 }
 
 pub trait ReportServant {
@@ -163,6 +174,7 @@ pub enum Record {
     },
     Request {
         id: usize,
+        ctx: Option<Context>,
         oid: Option<Oid>,
         req: Vec<u8>,
     },
