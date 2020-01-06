@@ -8,7 +8,8 @@ readme = "README.md"
 keywords = ["rpc"]
 categories = ["network-programming"]
 license = "MIT"
-license-file = "LICENSE-MIT"edition = "2018"
+license-file = "LICENSE-MIT"
+edition = "2018"
 
 [lib]
 path = "src/lib.rs"
