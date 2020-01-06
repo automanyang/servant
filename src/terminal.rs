@@ -9,7 +9,7 @@ use {
         net::{TcpStream, ToSocketAddrs},
         prelude::*,
         sync::{Arc, Mutex},
-        task,
+        task::{self, JoinHandle},
     },
     codec::RecordCodec,
     futures::{
@@ -162,7 +162,7 @@ impl Terminal {
                 if let Some(token) = token {
                     let ret = match bincode::deserialize(&ret) {
                         Ok(ret) => ret,
-                        Err(e) => Err(e.to_string().into())
+                        Err(e) => Err(e.to_string().into()),
                     };
                     let mut g = token.m.lock().unwrap();
                     g.replace(ret);
@@ -175,7 +175,15 @@ impl Terminal {
             Record::Request { .. } => unreachable!(),
         }
     }
-    pub async fn run(self, addr: impl ToSocketAddrs) -> std::io::Result<()> {
+    pub fn connect_to(self, addr: String) -> JoinHandle<()> {
+        let h = task::spawn(async {
+            let r = self.run(addr).await;
+            info!("terminal run result: {:?}", r);
+        });
+        std::thread::sleep(Duration::from_secs(1));
+        h
+    }
+    async fn run(self, addr: impl ToSocketAddrs) -> std::io::Result<()> {
         #[derive(Debug)]
         enum SelectedValue {
             ReadNone,

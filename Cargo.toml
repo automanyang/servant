@@ -1,8 +1,14 @@
 [package]
 name = "servant"
 version = "0.1.0"
-authors = ["xt <motoyang@163.com>"]
-edition = "2018"
+authors = ["automan.yang <automanyang@gmail.com>"]
+description = "servant是一个rpc框架库。"
+repository = "https://github.com/automanyang/servant"
+readme = "README.md"
+keywords = ["rpc"]
+categories = ["network-programming"]
+license = "MIT"
+license-file = "LICENSE-MIT"edition = "2018"
 
 [lib]
 path = "src/lib.rs"
