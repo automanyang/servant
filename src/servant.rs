@@ -3,7 +3,7 @@
 use {
     serde::{Deserialize, Serialize},
     std::sync::{Arc, Mutex},
-    std::{collections::HashMap, error::Error},
+    std::{collections::HashMap, error::Error, net::SocketAddr},
 };
 
 // --
@@ -60,12 +60,26 @@ impl std::fmt::Display for Oid {
 
 // --
 
+const DEFAULT_TIMEOUT_MS: usize = 5000;
+type UserCookie = usize;
+type ConnectionId = SocketAddr;
+
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-pub struct Context;
+pub struct Context {
+    timeout_millisecond: Option<usize>,
+    user_cookie: Option<UserCookie>,
+    connection_id: Option<ConnectionId>,
+    attributes: HashMap<String, String>,
+}
 
 impl Context {
     pub fn new() -> Self {
-        Self
+        Self {
+            timeout_millisecond: None,
+            user_cookie: None,
+            connection_id: None,
+            attributes: HashMap::new(),
+        }
     }
 }
 

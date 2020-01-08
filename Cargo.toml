@@ -8,7 +8,7 @@ readme = "README.md"
 keywords = ["rpc"]
 categories = ["network-programming"]
 license = "MIT"
-license-file = "LICENSE-MIT"
+# license-file = "LICENSE-MIT"
 edition = "2018"
 
 [lib]
@@ -29,7 +29,7 @@ full = ["default", "report", "notify"]
 [dependencies]
 log = "^0.4.8"
 elog = { path = "../../level_1/elog"}
-codec = { path = "../codec" }
+servant-codec = { path = "../servant-codec" }
 servant-macro = { path = "../servant-macro", optional = true }
 futures_codec = "^0.3.4"
 futures = "^0.3.1"

@@ -8,6 +8,7 @@ extern crate futures;
 extern crate futures_codec;
 extern crate serde;
 extern crate servant_macro;
+extern crate servant_codec as codec;
 
 // --
 
@@ -20,6 +21,7 @@ pub use servant_macro::query_interface;
 #[cfg(feature = "report")]
 pub use servant_macro::report_interface;
 
+mod list;
 mod servant;
 
 #[cfg(any(feature = "adapter", feature = "terminal"))]
@@ -38,7 +40,7 @@ mod gateway;
 
 // --
 
-pub use servant::{
+pub use crate::servant::{
     Context, NotifyServant, Oid, ReportServant, Servant, ServantError, ServantRegister,
     ServantResult,
 };
