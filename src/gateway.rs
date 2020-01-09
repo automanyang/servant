@@ -1,7 +1,11 @@
 // -- gateway.rs --
 
 use {
-    crate::{self as servant, AdapterRegister, Oid, ServantRegister, Context},
+    crate::{
+        self as servant,
+        adapter::AdapterRegister,
+        servant::{Context, Oid, ServantRegister},
+    },
     async_std::task,
 };
 

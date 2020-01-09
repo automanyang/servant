@@ -60,7 +60,7 @@ impl std::fmt::Display for Oid {
 
 // --
 
-const DEFAULT_TIMEOUT_MS: usize = 5000;
+// const DEFAULT_TIMEOUT_MS: usize = 5000;
 type UserCookie = usize;
 type ConnectionId = SocketAddr;
 
@@ -100,8 +100,8 @@ lazy_static! {
     });
 }
 
-type ServantEntry = Arc<Mutex<dyn Servant + Send>>;
-type ReportServantEntry = Arc<Mutex<dyn ReportServant + Send>>;
+pub type ServantEntry = Arc<Mutex<dyn Servant + Send>>;
+pub type ReportServantEntry = Arc<Mutex<dyn ReportServant + Send>>;
 struct _ServantRegister {
     servants: HashMap<Oid, ServantEntry>,
     report_servants: HashMap<Oid, ReportServantEntry>,
@@ -129,18 +129,18 @@ impl ServantRegister {
         let g = self.0.lock().unwrap();
         g.report_servants.get(&oid).map(|s| s.clone())
     }
-    pub fn add_servant(&self, obj: ServantEntry) {
+    pub fn add_servant(&self, category: &str, obj: ServantEntry) {
         let oid = {
             let g = obj.lock().unwrap();
-            Oid::new(g.name(), g.category())
+            Oid::new(g.name(), category)
         };
         let mut g = self.0.lock().unwrap();
         g.servants.insert(oid, obj);
     }
-    pub fn add_report_servant(&self, entry: ReportServantEntry) {
+    pub fn add_report_servant(&self, category: &str, entry: ReportServantEntry) {
         let oid = {
             let g = entry.lock().unwrap();
-            Oid::new(g.name(), g.category())
+            Oid::new(g.name(), category)
         };
         let mut g = self.0.lock().unwrap();
         g.report_servants.insert(oid, entry);
@@ -163,13 +163,11 @@ pub trait NotifyServant {
 
 pub trait Servant {
     fn name(&self) -> &str;
-    fn category(&self) -> &'static str;
     fn serve(&mut self, ctx: Option<Context>, req: Vec<u8>) -> Vec<u8>;
 }
 
 pub trait ReportServant {
     fn name(&self) -> &str;
-    fn category(&self) -> &'static str;
     fn serve(&mut self, req: Vec<u8>);
 }
 

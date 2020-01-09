@@ -24,6 +24,7 @@ pub use servant_macro::report_interface;
 
 mod list;
 mod servant;
+mod factory;
 
 #[cfg(any(feature = "adapter", feature = "terminal"))]
 mod drop_guard;
@@ -45,6 +46,8 @@ pub use crate::servant::{
     Context, NotifyServant, Oid, ReportServant, Servant, ServantError, ServantRegister,
     ServantResult,
 };
+
+pub use factory::{FactoryEntry, FactoryServant, FactoryProxy};
 
 #[cfg(feature = "adapter")]
 pub use {
