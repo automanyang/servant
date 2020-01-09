@@ -9,6 +9,7 @@ extern crate futures_codec;
 extern crate serde;
 extern crate servant_macro;
 extern crate servant_codec as codec;
+extern crate servant_log;
 
 // --
 

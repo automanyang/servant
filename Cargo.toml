@@ -28,7 +28,7 @@ full = ["default", "report", "notify"]
 
 [dependencies]
 log = "^0.4.8"
-elog = { version = "^0.1.0", path = "../../level_1/elog"}
+servant-log = { version = "^0.1.0", path = "../servant-log" }
 servant-codec = { version = "^0.1.0", path = "../servant-codec" }
 servant-macro = { version = "^0.1.0", path = "../servant-macro", optional = true }
 futures_codec = "^0.3.4"
