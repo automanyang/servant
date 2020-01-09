@@ -2,7 +2,7 @@
 name = "servant"
 version = "0.1.0"
 authors = ["automan.yang <automanyang@gmail.com>"]
-description = "servant是一个rpc框架库。"
+description = "Reserve the name."
 repository = "https://github.com/automanyang/servant"
 readme = "README.md"
 keywords = ["rpc"]
