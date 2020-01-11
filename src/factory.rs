@@ -17,6 +17,7 @@ pub trait Factory {
 
 // --
 
+// #[derive(serde::Serialize, serde::Deserialize)]
 pub struct FactoryEntry {
     map: HashMap<String, Box<dyn Fn(String) -> ServantEntry + Send>>,
 }
@@ -35,7 +36,7 @@ impl FactoryEntry {
             self.map.insert(category, Box::new(f));
             Ok(())
         } else {
-            Err("category is duplicate.".into())
+            Err(format!("category: {}, category is duplicate in factory.", category).into())
         }
     }
 }
@@ -47,7 +48,11 @@ impl Factory for FactoryEntry {
             ServantRegister::instance().add_servant(&category, entity);
             Ok(Oid::new(&name, &category))
         } else {
-            Err("create fn dosen't exist in factory.".into())
+            Err(format!(
+                "{}, create fn dosen't exist in factory.",
+                Oid::new(&name, &category)
+            )
+            .into())
         }
     }
 }

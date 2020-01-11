@@ -1,29 +1,34 @@
 // -- servant.rs --
 
 use {
+    crate::{
+        freeze::Freeze,
+        list::{List, Pointer},
+    },
     serde::{Deserialize, Serialize},
-    std::sync::{Arc, Mutex},
+    std::sync::{Arc, Mutex, MutexGuard},
     std::{collections::HashMap, error::Error, net::SocketAddr},
 };
 
 // --
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct ServantError {
-    desc: String,
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ServantError {
+    NoSupportSerializable,
+    Other(String),
 }
 
 impl Error for ServantError {}
 
 impl<T: Into<String>> std::convert::From<T> for ServantError {
     fn from(e: T) -> Self {
-        Self { desc: e.into() }
+        Self::Other(e.into())
     }
 }
 
 impl std::fmt::Display for ServantError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Servant({})", self.desc)
+        write!(f, "Servant({:?})", self)
     }
 }
 
@@ -87,6 +92,7 @@ impl Context {
 
 lazy_static! {
     static ref REGISTER: ServantRegister = ServantRegister({
+        const MAX_LEN_OF_EVICTOR: usize = 1;
         Mutex::new(_ServantRegister {
             servants: HashMap::new(),
             report_servants: HashMap::new(),
@@ -96,16 +102,45 @@ lazy_static! {
             )))),
             #[cfg(not(feature = "default_gateway"))]
             query: None,
+            evictor: List::new(MAX_LEN_OF_EVICTOR),
+            freeze: Freeze::new(),
         })
     });
 }
 
-pub type ServantEntry = Arc<Mutex<dyn Servant + Send>>;
-pub type ReportServantEntry = Arc<Mutex<dyn ReportServant + Send>>;
+#[derive(Clone)]
+pub(crate) struct ServantRecord {
+    servant: Arc<Mutex<dyn Servant + Send>>,
+    node: Option<Pointer<Oid>>,
+}
+
+pub(crate) type ServantEntry = Arc<Mutex<dyn Servant + Send>>;
+type ReportServantEntry = Arc<Mutex<dyn ReportServant + Send>>;
 struct _ServantRegister {
-    servants: HashMap<Oid, ServantEntry>,
+    servants: HashMap<Oid, ServantRecord>,
     report_servants: HashMap<Oid, ReportServantEntry>,
     query: Option<ServantEntry>,
+    evictor: List<Oid>,
+    freeze: Freeze,
+}
+
+#[allow(unused)]
+fn evict_all(mg: &mut MutexGuard<'_, _ServantRegister>) {
+    while let Some(abandoner) = mg.evictor.pop() {
+        if let Some(r) = mg.servants.remove(&abandoner) {
+            let v: Vec<u8> = { r.servant.lock().unwrap().dump().unwrap() };
+            mg.freeze.store(&abandoner, &v).unwrap();
+        }
+    }
+}
+
+fn evict_last_one(mg: &mut MutexGuard<'_, _ServantRegister>) {
+    if let Some(abandoner) = mg.evictor.evict() {
+        if let Some(r) = mg.servants.remove(&abandoner) {
+            let v: Vec<u8> = { r.servant.lock().unwrap().dump().unwrap() };
+            mg.freeze.store(&abandoner, &v).unwrap();
+        }
+    }
 }
 
 pub struct ServantRegister(Mutex<_ServantRegister>);
@@ -122,20 +157,56 @@ impl ServantRegister {
         g.query.as_ref().map(Clone::clone)
     }
     pub fn find_servant(&self, oid: &Oid) -> Option<ServantEntry> {
-        let g = self.0.lock().unwrap();
-        g.servants.get(&oid).map(|s| s.clone())
+        let mut g = self.0.lock().unwrap();
+        if let Some(r) = g.servants.get(&oid).map(|s| s.clone()) {
+            if let Some(node) = r.node {
+                g.evictor.top(node);
+            }
+            return Some(r.servant);
+        }
+        if let Some(s) = g.freeze.load(oid) {
+            evict_last_one(&mut g);
+            let node = Some(g.evictor.push(oid.clone()));
+            if let Some(_) = g.servants.insert(
+                oid.clone(),
+                ServantRecord {
+                    servant: s.clone(),
+                    node,
+                },
+            ) {
+                assert!(false, "{} duplicate.", oid);
+            }
+            Some(s)
+        } else {
+            None
+        }
     }
     pub fn find_report_servant(&self, oid: &Oid) -> Option<ReportServantEntry> {
         let g = self.0.lock().unwrap();
         g.report_servants.get(&oid).map(|s| s.clone())
     }
-    pub fn add_servant(&self, category: &str, obj: ServantEntry) {
-        let oid = {
-            let g = obj.lock().unwrap();
-            Oid::new(g.name(), category)
+    pub fn add_servant(&self, category: &str, entity: ServantEntry) {
+        let (oid, serializable) = {
+            let g = entity.lock().unwrap();
+            (
+                Oid::new(g.name(), category),
+                !(g.dump() == Err(ServantError::NoSupportSerializable)),
+            )
         };
         let mut g = self.0.lock().unwrap();
-        g.servants.insert(oid, obj);
+        let node = if serializable {
+            evict_last_one(&mut g);
+            Some(g.evictor.push(oid.clone()))
+        } else {
+            None
+        };
+        g.servants.insert(
+            oid,
+            ServantRecord {
+                servant: entity,
+                node,
+            },
+        );
     }
     pub fn add_report_servant(&self, category: &str, entry: ReportServantEntry) {
         let oid = {
@@ -153,6 +224,11 @@ impl ServantRegister {
         let g = self.0.lock().unwrap();
         g.report_servants.keys().map(|x| x.clone()).collect()
     }
+    pub fn freeze_register<F>(&self, category: &str, f: F)
+    where F: Fn(&str, &[u8]) -> ServantEntry + 'static + Send, {
+        let mut g = self.0.lock().unwrap();
+        g.freeze.register(category, f);
+    }
 }
 
 // --
@@ -163,6 +239,9 @@ pub trait NotifyServant {
 
 pub trait Servant {
     fn name(&self) -> &str;
+    fn dump(&self) -> ServantResult<Vec<u8>> {
+        Err(ServantError::NoSupportSerializable)
+    }
     fn serve(&mut self, ctx: Option<Context>, req: Vec<u8>) -> Vec<u8>;
 }
 
