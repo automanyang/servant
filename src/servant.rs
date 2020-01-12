@@ -2,7 +2,7 @@
 
 use {
     crate::{
-        freeze::Freeze,
+        freeze::{Freeze, MemoryDb},
         list::{List, Pointer},
     },
     serde::{Deserialize, Serialize},
@@ -28,7 +28,7 @@ impl<T: Into<String>> std::convert::From<T> for ServantError {
 
 impl std::fmt::Display for ServantError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Servant({:?})", self)
+        write!(f, "ServantError({:?})", self)
     }
 }
 
@@ -103,44 +103,26 @@ lazy_static! {
             #[cfg(not(feature = "default_gateway"))]
             query: None,
             evictor: List::new(MAX_LEN_OF_EVICTOR),
-            freeze: Freeze::new(),
+            freeze: Freeze::new(Box::new(MemoryDb::new())),
         })
     });
 }
 
+pub(crate) type ServantEntry = Arc<Mutex<dyn Servant + Send>>;
+type ReportServantEntry = Arc<Mutex<dyn ReportServant + Send>>;
+
 #[derive(Clone)]
-pub(crate) struct ServantRecord {
-    servant: Arc<Mutex<dyn Servant + Send>>,
+struct ServantRecord {
+    servant: ServantEntry,
     node: Option<Pointer<Oid>>,
 }
 
-pub(crate) type ServantEntry = Arc<Mutex<dyn Servant + Send>>;
-type ReportServantEntry = Arc<Mutex<dyn ReportServant + Send>>;
 struct _ServantRegister {
     servants: HashMap<Oid, ServantRecord>,
     report_servants: HashMap<Oid, ReportServantEntry>,
     query: Option<ServantEntry>,
     evictor: List<Oid>,
     freeze: Freeze,
-}
-
-#[allow(unused)]
-fn evict_all(mg: &mut MutexGuard<'_, _ServantRegister>) {
-    while let Some(abandoner) = mg.evictor.pop() {
-        if let Some(r) = mg.servants.remove(&abandoner) {
-            let v: Vec<u8> = { r.servant.lock().unwrap().dump().unwrap() };
-            mg.freeze.store(&abandoner, &v).unwrap();
-        }
-    }
-}
-
-fn evict_last_one(mg: &mut MutexGuard<'_, _ServantRegister>) {
-    if let Some(abandoner) = mg.evictor.evict() {
-        if let Some(r) = mg.servants.remove(&abandoner) {
-            let v: Vec<u8> = { r.servant.lock().unwrap().dump().unwrap() };
-            mg.freeze.store(&abandoner, &v).unwrap();
-        }
-    }
 }
 
 pub struct ServantRegister(Mutex<_ServantRegister>);
@@ -224,10 +206,29 @@ impl ServantRegister {
         let g = self.0.lock().unwrap();
         g.report_servants.keys().map(|x| x.clone()).collect()
     }
-    pub fn freeze_register<F>(&self, category: &str, f: F)
+    pub fn enroll_in_freeze<F>(&self, category: &str, f: F) -> ServantResult<()>
     where F: Fn(&str, &[u8]) -> ServantEntry + 'static + Send, {
         let mut g = self.0.lock().unwrap();
-        g.freeze.register(category, f);
+        g.freeze.enroll(category, f)
+    }
+}
+
+#[allow(unused)]
+fn evict_all(mg: &mut MutexGuard<'_, _ServantRegister>) {
+    while let Some(abandoner) = mg.evictor.pop() {
+        if let Some(r) = mg.servants.remove(&abandoner) {
+            let v: Vec<u8> = { r.servant.lock().unwrap().dump().unwrap() };
+            mg.freeze.store(&abandoner, &v).unwrap();
+        }
+    }
+}
+
+fn evict_last_one(mg: &mut MutexGuard<'_, _ServantRegister>) {
+    if let Some(abandoner) = mg.evictor.evict() {
+        if let Some(r) = mg.servants.remove(&abandoner) {
+            let v: Vec<u8> = { r.servant.lock().unwrap().dump().unwrap() };
+            mg.freeze.store(&abandoner, &v).unwrap();
+        }
     }
 }
 

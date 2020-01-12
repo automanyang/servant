@@ -8,32 +8,51 @@ use {
 
 // --
 
-pub struct Freeze {
-    map: HashMap<String, Box<dyn Fn(&str, &[u8]) -> ServantEntry + Send>>,
-    db: HashMap<Oid, Vec<u8>>,
+pub trait Storage {
+    fn store(&mut self, oid: &Oid, bytes: &[u8]) -> ServantResult<()>;
+    fn load(&mut self, oid: &Oid) -> ServantResult<Vec<u8>>;
 }
 
-impl Freeze {
+// --
+
+pub struct MemoryDb(HashMap<Oid, Vec<u8>>);
+impl MemoryDb {
     pub fn new() -> Self {
-        Self {
-            map: HashMap::new(),
-            db: HashMap::new(),
-        }
+        Self(HashMap::new())
     }
-    fn store_into_db(&mut self, oid: &Oid, bytes: &[u8]) -> ServantResult<()> {
-        self.db.insert(oid.clone(), bytes.to_vec());
+}
+
+impl Storage for MemoryDb {
+    fn store(&mut self, oid: &Oid, bytes: &[u8]) -> ServantResult<()> {
         dbg!(oid);
+        self.0.insert(oid.clone(), bytes.to_vec());
         Ok(())
     }
-    fn load_from_db(&self, oid: &Oid) -> ServantResult<Vec<u8>> {
+    fn load(&mut self, oid: &Oid) -> ServantResult<Vec<u8>> {
         dbg!(oid);
-        if let Some(v) = self.db.get(oid) {
-            Ok(v.clone())
+        if let Some(v) = self.0.remove(oid) {
+            Ok(v)
         } else {
             Err(format!("{} dosen't exist in db.", oid).into())
         }
     }
-    pub fn register<F>(&mut self, category: &str, f: F) -> ServantResult<()>
+}
+
+// --
+
+pub struct Freeze {
+    map: HashMap<String, Box<dyn Fn(&str, &[u8]) -> ServantEntry + Send>>,
+    db: Box<dyn Storage + Send>,
+}
+
+impl Freeze {
+    pub fn new(db: Box<dyn Storage + Send>) -> Self {
+        Self {
+            map: HashMap::new(),
+            db
+        }
+    }
+    pub fn enroll<F>(&mut self, category: &str, f: F) -> ServantResult<()>
     where
         F: Fn(&str, &[u8]) -> ServantEntry + 'static + Send,
     {
@@ -44,12 +63,12 @@ impl Freeze {
             Err(format!("category: {} is duplicate in freeze.", category).into())
         }
     }
-    pub fn store(&mut self, _oid: &Oid, bytes: &[u8]) -> ServantResult<()> {
-        self.store_into_db(_oid, bytes)
+    pub fn store(&mut self, oid: &Oid, bytes: &[u8]) -> ServantResult<()> {
+        self.db.store(oid, bytes)
     }
-    pub fn load(&self, oid: &Oid) -> Option<ServantEntry> {
+    pub fn load(&mut self, oid: &Oid) -> Option<ServantEntry> {
         let category = oid.category();
-        match self.load_from_db(oid) {
+        match self.db.load(oid) {
             Ok(bytes) => {
                 if let Some(f) = self.map.get(&category.to_string()) {
                     Some(f(oid.name(), &bytes))

@@ -27,6 +27,7 @@ mod list;
 mod servant;
 mod factory;
 mod freeze;
+mod db;
 
 #[cfg(any(feature = "adapter", feature = "terminal"))]
 mod drop_guard;

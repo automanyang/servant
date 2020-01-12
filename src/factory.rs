@@ -19,7 +19,7 @@ pub trait Factory {
 
 // #[derive(serde::Serialize, serde::Deserialize)]
 pub struct FactoryEntry {
-    map: HashMap<String, Box<dyn Fn(String) -> ServantEntry + Send>>,
+    map: HashMap<String, Box<dyn Fn(&str) -> ServantEntry + Send>>,
 }
 
 impl FactoryEntry {
@@ -28,12 +28,12 @@ impl FactoryEntry {
             map: HashMap::new(),
         }
     }
-    pub fn registe<F>(&mut self, category: String, f: F) -> ServantResult<()>
+    pub fn enroll<F>(&mut self, category: &str, f: F) -> ServantResult<()>
     where
-        F: Fn(String) -> ServantEntry + 'static + Send,
+        F: Fn(&str) -> ServantEntry + 'static + Send,
     {
-        if self.map.get(&category).is_none() {
-            self.map.insert(category, Box::new(f));
+        if self.map.get(&category.to_string()).is_none() {
+            self.map.insert(category.to_string(), Box::new(f));
             Ok(())
         } else {
             Err(format!("category: {}, category is duplicate in factory.", category).into())
@@ -43,14 +43,15 @@ impl FactoryEntry {
 
 impl Factory for FactoryEntry {
     fn create(&self, _ctx: Option<Context>, name: String, category: String) -> ServantResult<Oid> {
+        let oid = Oid::new(&name, &category);
         if let Some(f) = self.map.get(&category) {
-            let entity = f(name.clone());
+            let entity = f(&name);
             ServantRegister::instance().add_servant(&category, entity);
-            Ok(Oid::new(&name, &category))
+            Ok(oid)
         } else {
             Err(format!(
                 "{}, create fn dosen't exist in factory.",
-                Oid::new(&name, &category)
+                oid
             )
             .into())
         }

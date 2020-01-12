@@ -371,7 +371,6 @@ pub mod v3 {
         pre: Option<Pointer<T>>,
         next: Option<Pointer<T>>,
     }
-    // pub type Node<T> = Rc<RefCell<_Node<T>>>;
 
     #[derive(Clone)]
     pub struct Pointer<T>(Rc<RefCell<_Node<T>>>);
