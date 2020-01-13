@@ -65,16 +65,15 @@ impl std::fmt::Display for Oid {
 
 // --
 
-// const DEFAULT_TIMEOUT_MS: usize = 5000;
 type UserCookie = usize;
 type ConnectionId = SocketAddr;
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Context {
-    timeout_millisecond: Option<usize>,
-    user_cookie: Option<UserCookie>,
-    connection_id: Option<ConnectionId>,
-    attributes: HashMap<String, String>,
+    pub timeout_millisecond: Option<u64>,
+    pub user_cookie: Option<UserCookie>,
+    pub connection_id: Option<ConnectionId>,
+    pub attributes: HashMap<String, String>,
 }
 
 impl Context {
