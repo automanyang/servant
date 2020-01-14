@@ -109,6 +109,7 @@ lazy_static! {
 
 pub(crate) type ServantEntry = Arc<Mutex<dyn Servant + Send>>;
 type ReportServantEntry = Arc<Mutex<dyn ReportServant + Send>>;
+type QueryServantEntry = Arc<Mutex<dyn QueryServant + Send>>;
 
 #[derive(Clone)]
 struct ServantRecord {
@@ -119,7 +120,7 @@ struct ServantRecord {
 struct _ServantRegister {
     servants: HashMap<Oid, ServantRecord>,
     report_servants: HashMap<Oid, ReportServantEntry>,
-    query: Option<ServantEntry>,
+    query: Option<QueryServantEntry>,
     evictor: List<Oid>,
     freeze: Freeze,
 }
@@ -129,11 +130,11 @@ impl ServantRegister {
     pub fn instance() -> &'static Self {
         &REGISTER
     }
-    pub fn set_query_servant(&self, query: ServantEntry) {
+    pub fn set_query_servant(&self, query: QueryServantEntry) {
         let mut g = self.0.lock().unwrap();
         g.query.replace(query);
     }
-    pub fn query_servant(&self) -> Option<ServantEntry> {
+    pub fn query_servant(&self) -> Option<QueryServantEntry> {
         let g = self.0.lock().unwrap();
         g.query.as_ref().map(Clone::clone)
     }
@@ -233,10 +234,6 @@ fn evict_last_one(mg: &mut MutexGuard<'_, _ServantRegister>) {
 
 // --
 
-pub trait NotifyServant {
-    fn serve(&mut self, req: Vec<u8>);
-}
-
 pub trait Servant {
     fn name(&self) -> &str;
     fn dump(&self) -> ServantResult<Vec<u8>> {
@@ -245,8 +242,16 @@ pub trait Servant {
     fn serve(&mut self, ctx: Option<Context>, req: Vec<u8>) -> Vec<u8>;
 }
 
+pub trait QueryServant {
+    fn serve(&mut self, req: Vec<u8>) -> Vec<u8>;
+}
+
 pub trait ReportServant {
     fn name(&self) -> &str;
+    fn serve(&mut self, req: Vec<u8>);
+}
+
+pub trait NotifyServant {
     fn serve(&mut self, req: Vec<u8>);
 }
 

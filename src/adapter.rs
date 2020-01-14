@@ -139,7 +139,7 @@ impl Adapter {
                         } else {
                             if let Some(query) = sr.query_servant() {
                                 let mut q = query.lock().unwrap();
-                                Ok(q.serve(ctx, req))
+                                Ok(q.serve(req))
                             } else {
                                 Err("query servant dosen't exist.".into())
                             }
