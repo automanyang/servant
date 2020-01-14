@@ -15,7 +15,15 @@ use {
     },
     futures_codec::{FramedRead, FramedWrite},
     log::{info, warn},
-    std::{collections::HashMap, net::SocketAddr},
+    std::{
+        collections::HashMap,
+        net::SocketAddr,
+        sync::{
+            atomic::{AtomicUsize, Ordering},
+            Arc,
+        },
+        time::Duration,
+    },
 };
 
 // --
@@ -75,11 +83,17 @@ impl AdapterRegister {
 
 // --
 
-pub struct Adapter;
+pub struct Adapter {
+    max_serve_count: usize,
+    serve_count: Arc<AtomicUsize>,
+}
 
 impl Adapter {
-    pub fn new() -> Self {
-        Self
+    pub fn new(max_serve_count: usize) -> Self {
+        Self {
+            max_serve_count,
+            serve_count: Arc::new(AtomicUsize::new(0)),
+        }
     }
     pub async fn run(self, stream: TcpStream) -> std::io::Result<()> {
         #[derive(Debug)]
@@ -92,12 +106,12 @@ impl Adapter {
 
         let addr = stream.peer_addr().unwrap();
         info!("connected from {}", &addr);
-        let (reader, writer) = &mut (&stream, &stream);
+        let (reader, writer) = (&stream, &stream);
         let read_framed = FramedRead::new(reader, RecordCodec::<u32, Record>::default());
         let mut write_framed = FramedWrite::new(writer, RecordCodec::<u32, Record>::default());
 
         let (tx, rx) = unbounded();
-        AdapterRegister::instance().insert(addr, tx).await;
+        AdapterRegister::instance().insert(addr, tx.clone()).await;
 
         let _adapter_clean = DropGuard::new(addr, |a| {
             task::block_on(async move {
@@ -118,43 +132,14 @@ impl Adapter {
                     None => SelectedValue::WriteNone,
                 },
             };
-            let sr = ServantRegister::instance();
+
             match value {
-                SelectedValue::Read(record) => match record {
-                    Record::Report { id, oid, msg } => {
-                        let _id = id;
-                        if let Some(servant) = sr.find_report_servant(&oid) {
-                            servant.lock().unwrap().serve(msg);
-                        } else {
-                            warn!("{} dosen't exist.", &oid);
-                        }
+                SelectedValue::Read(record) => {
+                    while self.serve_count.load(Ordering::Relaxed) >= self.max_serve_count {
+                        task::sleep(Duration::from_millis(100)).await;
                     }
-                    Record::Request { id, ctx, oid, req } => {
-                        let ret: ServantResult<Vec<u8>> = if let Some(oid) = &oid {
-                            if let Some(servant) = sr.find_servant(oid) {
-                                Ok(servant.lock().unwrap().serve(ctx, req))
-                            } else {
-                                Err(format!("{} dosen't exist.", &oid).into())
-                            }
-                        } else {
-                            if let Some(query) = sr.query_servant() {
-                                let mut q = query.lock().unwrap();
-                                Ok(q.serve(req))
-                            } else {
-                                Err("query servant dosen't exist.".into())
-                            }
-                        };
-                        match bincode::serialize(&ret) {
-                            Ok(ret) => {
-                                let record = Record::Response { id, oid, ret };
-                                write_framed.send(record).await?;
-                            }
-                            Err(e) => warn!("{}", e.to_string()),
-                        }
-                    }
-                    Record::Response { .. } => unreachable!(),
-                    Record::Notice { .. } => unreachable!(),
-                },
+                    task::spawn(serve(self.serve_count.clone(), tx.clone(), record));
+                }
                 SelectedValue::Write(record) => {
                     write_framed.send(record).await?;
                 }
@@ -170,4 +155,52 @@ impl Adapter {
 
         Ok(())
     }
+}
+
+async fn serve(count: Arc<AtomicUsize>, mut tx: UnboundedSender<Record>, record: Record) {
+    count.fetch_add(1, Ordering::SeqCst);
+    let _sub = DropGuard::new(count, |a| {
+        task::block_on(async move {
+            a.fetch_sub(1, Ordering::SeqCst);
+        });
+    });
+
+    let sr = ServantRegister::instance();
+    match record {
+        Record::Report { id, oid, msg } => {
+            let _id = id;
+            if let Some(servant) = sr.find_report_servant(&oid) {
+                servant.lock().unwrap().serve(msg);
+            } else {
+                warn!("{} dosen't exist.", &oid);
+            }
+        }
+        Record::Request { id, ctx, oid, req } => {
+            let ret: ServantResult<Vec<u8>> = if let Some(oid) = &oid {
+                if let Some(servant) = sr.find_servant(oid) {
+                    Ok(servant.lock().unwrap().serve(ctx, req))
+                } else {
+                    Err(format!("{} dosen't exist.", &oid).into())
+                }
+            } else {
+                if let Some(query) = sr.query_servant() {
+                    let mut q = query.lock().unwrap();
+                    Ok(q.serve(req))
+                } else {
+                    Err("query servant dosen't exist.".into())
+                }
+            };
+            match bincode::serialize(&ret) {
+                Ok(ret) => {
+                    let record = Record::Response { id, oid, ret };
+                    if let Err(e) = tx.send(record).await {
+                        warn!("{}", e.to_string());
+                    }
+                }
+                Err(e) => warn!("{}", e.to_string()),
+            }
+        }
+        Record::Response { .. } => unreachable!(),
+        Record::Notice { .. } => unreachable!(),
+    };
 }

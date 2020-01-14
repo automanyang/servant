@@ -314,7 +314,6 @@ impl Terminal {
     }
     async fn tick(&self) {
         let now = SystemTime::now();
-        dbg!(&now);
         let mut g = self.0.lock().await;
         let v: Vec<RecordId> = g
             .callback_map

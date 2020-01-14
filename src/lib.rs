@@ -21,7 +21,6 @@ pub use servant_macro::notify_interface;
 pub use servant_macro::query_interface;
 #[cfg(feature = "report")]
 pub use servant_macro::report_interface;
-// pub use servant_macro::invoke_interface_with_persistency;
 
 mod list;
 mod servant;
@@ -47,7 +46,7 @@ mod gateway;
 
 pub use crate::servant::{
     Context, NotifyServant, Oid, QueryServant, ReportServant, Servant, ServantError, ServantRegister,
-    ServantResult,
+    ServantResult, UserCookie
 };
 
 pub use factory::{FactoryEntry, FactoryServant, FactoryProxy};

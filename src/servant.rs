@@ -65,7 +65,7 @@ impl std::fmt::Display for Oid {
 
 // --
 
-type UserCookie = usize;
+pub type UserCookie = usize;
 type ConnectionId = SocketAddr;
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -91,7 +91,7 @@ impl Context {
 
 lazy_static! {
     static ref REGISTER: ServantRegister = ServantRegister({
-        const MAX_LEN_OF_EVICTOR: usize = 1;
+        const MAX_LEN_OF_EVICTOR: usize = 3;
         Mutex::new(_ServantRegister {
             servants: HashMap::new(),
             report_servants: HashMap::new(),

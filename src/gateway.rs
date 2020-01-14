@@ -4,7 +4,7 @@ use {
     crate::{
         self as servant,
         adapter::AdapterRegister,
-        servant::{Context, Oid, ServantRegister},
+        servant::{Oid, ServantRegister, UserCookie},
     },
     async_std::task,
 };
@@ -16,7 +16,7 @@ pub trait Gateway {
     fn export_servants(&self) -> Vec<Oid>;
     fn export_report_servants(&self) -> Vec<Oid>;
     fn shutdown(&self, passcode: usize);
-    fn login(&self, name: String, password: String) -> Context;
+    fn login(&self, name: String, password: String) -> UserCookie;
 }
 
 // --
@@ -35,7 +35,7 @@ impl Gateway for GatewayEntry {
             AdapterRegister::instance().clean(passcode).await;
         });
     }
-    fn login(&self, _name: String, _password: String) -> Context {
-        Context::new()
+    fn login(&self, _name: String, _password: String) -> UserCookie {
+        238
     }
 }

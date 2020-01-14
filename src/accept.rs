@@ -42,7 +42,7 @@ pub async fn accept_on(addr: impl ToSocketAddrs) -> std::io::Result<()> {
         match value {
             SelectedValue::Incoming(stream) => {
                 info!("Accepting from: {}", stream.peer_addr()?);
-                let adapter = Adapter::new();
+                let adapter = Adapter::new(3);
                 let _handle = task::spawn(adapter.run(stream));
             }
             _ => {
