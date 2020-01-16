@@ -3,7 +3,8 @@
 use {
     crate::{
         freeze::{Freeze, MemoryDb},
-        list::{List, Pointer},
+        utilities::{List, Pointer},
+        config::Config,
     },
     serde::{Deserialize, Serialize},
     std::sync::{Arc, Mutex, MutexGuard},
@@ -91,7 +92,7 @@ impl Context {
 
 lazy_static! {
     static ref REGISTER: ServantRegister = ServantRegister({
-        const MAX_LEN_OF_EVICTOR: usize = 3;
+        let max_count_of_evictor_list = Config::instance().max_count_of_evictor_list;
         Mutex::new(_ServantRegister {
             servants: HashMap::new(),
             report_servants: HashMap::new(),
@@ -101,7 +102,7 @@ lazy_static! {
             )))),
             #[cfg(not(feature = "default_gateway"))]
             query: None,
-            evictor: List::new(MAX_LEN_OF_EVICTOR),
+            evictor: List::new(max_count_of_evictor_list),
             freeze: Freeze::new(Box::new(MemoryDb::new())),
         })
     });

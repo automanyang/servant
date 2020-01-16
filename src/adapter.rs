@@ -2,7 +2,7 @@
 
 use {
     super::{
-        drop_guard::DropGuard,
+        utilities::{DropGuard, Semaphore, SemaphoreGuard},
         servant::{Record, ServantRegister, ServantResult},
     },
     async_std::{net::TcpStream, prelude::*, sync::Mutex, task},
@@ -18,11 +18,6 @@ use {
     std::{
         collections::HashMap,
         net::SocketAddr,
-        sync::{
-            atomic::{AtomicUsize, Ordering},
-            Arc,
-        },
-        time::Duration,
     },
 };
 
@@ -85,14 +80,12 @@ impl AdapterRegister {
 
 pub struct Adapter {
     max_serve_count: usize,
-    serve_count: Arc<AtomicUsize>,
 }
 
 impl Adapter {
     pub fn new(max_serve_count: usize) -> Self {
         Self {
             max_serve_count,
-            serve_count: Arc::new(AtomicUsize::new(0)),
         }
     }
     pub async fn run(self, stream: TcpStream) -> std::io::Result<()> {
@@ -110,6 +103,7 @@ impl Adapter {
         let read_framed = FramedRead::new(reader, RecordCodec::<u32, Record>::default());
         let mut write_framed = FramedWrite::new(writer, RecordCodec::<u32, Record>::default());
 
+        let sem = Semaphore::new(self.max_serve_count);
         let (tx, rx) = unbounded();
         AdapterRegister::instance().insert(addr, tx.clone()).await;
 
@@ -135,10 +129,9 @@ impl Adapter {
 
             match value {
                 SelectedValue::Read(record) => {
-                    while self.serve_count.load(Ordering::Relaxed) >= self.max_serve_count {
-                        task::sleep(Duration::from_millis(100)).await;
-                    }
-                    task::spawn(serve(self.serve_count.clone(), tx.clone(), record));
+                    let g = sem.lock();
+                    let tx2 = tx.clone();
+                    task::spawn(serve(g, tx2, record));
                 }
                 SelectedValue::Write(record) => {
                     write_framed.send(record).await?;
@@ -157,14 +150,7 @@ impl Adapter {
     }
 }
 
-async fn serve(count: Arc<AtomicUsize>, mut tx: UnboundedSender<Record>, record: Record) {
-    count.fetch_add(1, Ordering::SeqCst);
-    let _sub = DropGuard::new(count, |a| {
-        task::block_on(async move {
-            a.fetch_sub(1, Ordering::SeqCst);
-        });
-    });
-
+async fn serve(_g: SemaphoreGuard, mut tx: UnboundedSender<Record>, record: Record) {
     let sr = ServantRegister::instance();
     match record {
         Record::Report { id, oid, msg } => {
@@ -196,6 +182,7 @@ async fn serve(count: Arc<AtomicUsize>, mut tx: UnboundedSender<Record>, record:
                     if let Err(e) = tx.send(record).await {
                         warn!("{}", e.to_string());
                     }
+                    dbg!();
                 }
                 Err(e) => warn!("{}", e.to_string()),
             }

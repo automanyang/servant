@@ -1,16 +1,17 @@
 // -- terminal.rs --
 
 use {
-    super::{
-        drop_guard::DropGuard,
+    crate::{
+        config::Config,
         servant::{Context, NotifyServant, Oid, Record, ServantResult},
+        utilities::DropGuard,
     },
     async_std::{
-        net::{TcpStream, ToSocketAddrs},
+        net::TcpStream,
         prelude::*,
         stream,
         sync::{Arc, Mutex},
-        task::{self, JoinHandle},
+        task,
     },
     codec::RecordCodec,
     futures::{
@@ -29,19 +30,6 @@ use {
 };
 
 // --
-
-const DEFAULT_TIMEOUT_MS: u64 = 5000;
-fn timeout_value_in_context(ctx: &Option<Context>) -> u64 {
-    if let Some(c) = ctx.as_ref() {
-        if let Some(t) = c.timeout_millisecond {
-            t
-        } else {
-            DEFAULT_TIMEOUT_MS
-        }
-    } else {
-        DEFAULT_TIMEOUT_MS
-    }
-}
 
 type RecordId = usize;
 type Tx = UnboundedSender<Record>;
@@ -66,27 +54,45 @@ type CallbackMap = HashMap<RecordId, CallbackRecord>;
 struct _Terminal {
     req_id: RecordId,
     report_id: RecordId,
+    invoke_timeout_ms: u64,
     sender: Option<Tx>,
     token_pool: TokenPool,
     token_map: TokenMap,
+    max_count_of_callback: usize,
     callback_map: CallbackMap,
     receiver: Option<NotifyServantEntry>,
+}
+impl _Terminal {
+    fn timeout_value_in_context(&self, ctx: &Option<Context>) -> u64 {
+        if let Some(c) = ctx.as_ref() {
+            if let Some(t) = c.timeout_millisecond {
+                t
+            } else {
+                self.invoke_timeout_ms
+            }
+        } else {
+            self.invoke_timeout_ms
+        }
+    }
 }
 
 #[derive(Clone)]
 pub struct Terminal(Arc<Mutex<_Terminal>>);
 impl Terminal {
-    pub fn new(token_pool_size: usize, receiver: Option<NotifyServantEntry>) -> Self {
+    pub fn new(receiver: Option<NotifyServantEntry>) -> Self {
+        let config = Config::instance();
         let mut t = _Terminal {
             req_id: 0,
             report_id: 0,
+            invoke_timeout_ms: config.invoke_timeout_in_terminal,
             sender: None,
             token_pool: TokenPool::new(),
             token_map: TokenMap::new(),
+            max_count_of_callback: config.max_count_of_evictor_list,
             callback_map: CallbackMap::new(),
             receiver,
         };
-        for _ in 0..token_pool_size {
+        for _ in 0..config.token_count_by_terminal {
             let r = _Token {
                 m: StdMutex::new(None),
                 cv: Condvar::default(),
@@ -132,6 +138,9 @@ impl Terminal {
         F: 'static + Fn(Option<Oid>, ServantResult<Vec<u8>>) + Send,
     {
         let mut g = self.0.lock().await;
+        if g.callback_map.len() >= g.max_count_of_callback {
+            return Err("callback map is full.".into());
+        }
         let mut tx = if let Some(tx) = g.sender.as_ref() {
             tx.clone()
         } else {
@@ -139,6 +148,7 @@ impl Terminal {
         };
         g.req_id += 1;
         let id = g.req_id;
+        let timeout_ms = g.timeout_value_in_context(&ctx);
         assert_eq!(
             true,
             g.callback_map
@@ -147,7 +157,7 @@ impl Terminal {
                     CallbackRecord {
                         start: SystemTime::now(),
                         oid: oid.clone(),
-                        timeout_ms: timeout_value_in_context(&ctx),
+                        timeout_ms,
                         callback: Box::new(f)
                     }
                 )
@@ -167,7 +177,7 @@ impl Terminal {
         oid: Option<Oid>,
         req: Vec<u8>,
     ) -> ServantResult<Vec<u8>> {
-        let (mut tx, index, token) = {
+        let (mut tx, index, token, timeout_ms) = {
             let mut g = self.0.lock().await;
             let tx = if let Some(tx) = g.sender.as_ref() {
                 tx.clone()
@@ -178,14 +188,13 @@ impl Terminal {
                 g.req_id += 1;
                 let id = g.req_id;
                 g.token_map.insert(id, tok.clone());
-                (tx, id, tok)
+                (tx, id, tok, g.timeout_value_in_context(&ctx))
             } else {
                 return Err("token pool is empty.".into());
             }
         };
         let ret = match token.m.lock() {
             Ok(m) => {
-                let timeout = timeout_value_in_context(&ctx);
                 let record = Record::Request {
                     id: index,
                     ctx,
@@ -195,7 +204,7 @@ impl Terminal {
                 if let Err(e) = tx.send(record).await {
                     Err(e.to_string().into())
                 } else {
-                    match token.cv.wait_timeout(m, Duration::from_millis(timeout)) {
+                    match token.cv.wait_timeout(m, Duration::from_millis(timeout_ms)) {
                         Ok(mut r) => {
                             if r.1.timed_out() {
                                 Err("timed_out.".into())
@@ -252,15 +261,19 @@ impl Terminal {
             Record::Request { .. } => unreachable!(),
         }
     }
-    pub fn connect_to(self, addr: String) -> JoinHandle<()> {
-        let h = task::spawn(async {
-            let r = self.run(addr).await;
+    pub async fn connect_to(&self, addr: String) -> std::io::Result<()> {
+        let stream = TcpStream::connect(addr).await?;
+        info!("connected to {}", stream.peer_addr()?);
+
+        let conn = self.clone();
+        task::spawn(async move {
+            let r = conn.run(stream).await;
             info!("terminal run result: {:?}", r);
         });
-        std::thread::sleep(Duration::from_secs(1));
-        h
+        task::sleep(Duration::from_secs(1)).await;
+        Ok(())
     }
-    async fn run(self, addr: impl ToSocketAddrs) -> std::io::Result<()> {
+    async fn run(&self, stream: TcpStream) -> std::io::Result<()> {
         #[derive(Debug)]
         enum SelectedValue {
             ReadNone,
@@ -270,8 +283,8 @@ impl Terminal {
             Write(Record),
         }
 
-        let stream = TcpStream::connect(addr).await?;
-        info!("connected to {}", stream.peer_addr()?);
+        // let stream = TcpStream::connect(addr).await?;
+        // info!("connected to {}", stream.peer_addr()?);
         let (reader, writer) = (&stream, &stream);
         let read_framed = FramedRead::new(reader, RecordCodec::<u32, Record>::default());
         let mut write_framed = FramedWrite::new(writer, RecordCodec::<u32, Record>::default());

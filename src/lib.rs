@@ -3,6 +3,7 @@
 #[macro_use]
 extern crate lazy_static;
 extern crate async_std;
+extern crate crossbeam_channel;
 extern crate bincode;
 extern crate futures;
 extern crate futures_codec;
@@ -22,14 +23,12 @@ pub use servant_macro::query_interface;
 #[cfg(feature = "report")]
 pub use servant_macro::report_interface;
 
-mod list;
+mod utilities;
 mod servant;
 mod factory;
 mod freeze;
+mod config;
 mod db;
-
-#[cfg(any(feature = "adapter", feature = "terminal"))]
-mod drop_guard;
 
 #[cfg(feature = "adapter")]
 mod accept;
@@ -43,6 +42,8 @@ mod terminal;
 mod gateway;
 
 // --
+
+// pub use config::Config;
 
 pub use crate::servant::{
     Context, NotifyServant, Oid, QueryServant, ReportServant, Servant, ServantError, ServantRegister,

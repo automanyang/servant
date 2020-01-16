@@ -1,7 +1,7 @@
 // -- accept.rs --
 
 use {
-    super::adapter::{Adapter, AdapterRegister},
+    super::{adapter::{Adapter, AdapterRegister}, config::Config},
     async_std::{
         net::{TcpListener, TcpStream, ToSocketAddrs},
         prelude::*,
@@ -21,6 +21,7 @@ pub async fn accept_on(addr: impl ToSocketAddrs) -> std::io::Result<()> {
         Incoming(TcpStream),
     };
 
+    let serve_count = Config::instance().serve_count_by_adapter;
     let (tx, rx) = unbounded();
     AdapterRegister::instance().set_accept(tx).await;
 
@@ -42,7 +43,7 @@ pub async fn accept_on(addr: impl ToSocketAddrs) -> std::io::Result<()> {
         match value {
             SelectedValue::Incoming(stream) => {
                 info!("Accepting from: {}", stream.peer_addr()?);
-                let adapter = Adapter::new(3);
+                let adapter = Adapter::new(serve_count);
                 let _handle = task::spawn(adapter.run(stream));
             }
             _ => {
