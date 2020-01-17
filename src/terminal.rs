@@ -2,7 +2,6 @@
 
 use {
     crate::{
-        config::Config,
         servant::{Context, NotifyServant, Oid, Record, ServantResult},
         utilities::DropGuard,
     },
@@ -79,20 +78,23 @@ impl _Terminal {
 #[derive(Clone)]
 pub struct Terminal(Arc<Mutex<_Terminal>>);
 impl Terminal {
-    pub fn new(receiver: Option<NotifyServantEntry>) -> Self {
-        let config = Config::instance();
+    pub fn new(
+        invoke_timeout_ms: u64,
+        token_count_by_terminal: usize,
+        max_count_of_callback: usize,
+    ) -> Self {
         let mut t = _Terminal {
             req_id: 0,
             report_id: 0,
-            invoke_timeout_ms: config.invoke_timeout_in_terminal,
+            invoke_timeout_ms,
             sender: None,
             token_pool: TokenPool::new(),
             token_map: TokenMap::new(),
-            max_count_of_callback: config.max_count_of_evictor_list,
+            max_count_of_callback,
             callback_map: CallbackMap::new(),
-            receiver,
+            receiver: None
         };
-        for _ in 0..config.token_count_by_terminal {
+        for _ in 0..token_count_by_terminal {
             let r = _Token {
                 m: StdMutex::new(None),
                 cv: Condvar::default(),
@@ -104,6 +106,10 @@ impl Terminal {
     pub async fn clean(&self) {
         let mut g = self.0.lock().await;
         g.sender.take();
+    }
+    pub async fn set_receiver(&self, receiver: NotifyServantEntry) {
+        let mut g = self.0.lock().await;
+        g.receiver.replace(receiver);
     }
     async fn set_tx(&self, tx: Option<Tx>) {
         let mut g = self.0.lock().await;

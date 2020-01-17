@@ -5,7 +5,7 @@ use {
         utilities::{DropGuard, Semaphore, SemaphoreGuard},
         servant::{Record, ServantRegister, ServantResult},
     },
-    async_std::{net::TcpStream, prelude::*, sync::Mutex, task},
+    async_std::{net::TcpStream, prelude::*, sync::{Arc, Mutex}, task},
     codec::RecordCodec,
     futures::{
         channel::mpsc::{unbounded, UnboundedSender},
@@ -23,15 +23,6 @@ use {
 
 // --
 
-lazy_static! {
-    static ref ADAPTER_REGISTER: AdapterRegister = AdapterRegister(Mutex::new(_Register {
-        passcode: 238,
-        id: 0,
-        accept_tx: None,
-        senders: HashMap::new(),
-    }));
-}
-
 struct _Register {
     passcode: usize,
     id: usize,
@@ -39,10 +30,16 @@ struct _Register {
     senders: HashMap<SocketAddr, UnboundedSender<Record>>,
 }
 
-pub struct AdapterRegister(Mutex<_Register>);
+#[derive(Clone)]
+pub struct AdapterRegister(Arc<Mutex<_Register>>);
 impl AdapterRegister {
-    pub fn instance() -> &'static Self {
-        &ADAPTER_REGISTER
+    pub(crate) fn new() -> Self {
+        Self(Arc::new(Mutex::new(_Register {
+            passcode: 238,
+            id: 0,
+            accept_tx: None,
+            senders: HashMap::new(),
+        })))
     }
     pub async fn clean(&self, passcode: usize) {
         let mut g = self.0.lock().await;
@@ -51,15 +48,15 @@ impl AdapterRegister {
             g.senders.clear();
         }
     }
-    pub async fn set_accept(&self, tx: UnboundedSender<()>) {
+    pub(crate) async fn set_accept(&self, tx: UnboundedSender<()>) {
         let mut g = self.0.lock().await;
         g.accept_tx = Some(tx);
     }
-    pub async fn insert(&self, addr: SocketAddr, tx: UnboundedSender<Record>) {
+    pub(crate) async fn insert(&self, addr: SocketAddr, tx: UnboundedSender<Record>) {
         let mut g = self.0.lock().await;
         g.senders.insert(addr, tx);
     }
-    pub async fn remove(&self, addr: &SocketAddr) {
+    pub(crate) async fn remove(&self, addr: &SocketAddr) {
         let mut g = self.0.lock().await;
         g.senders.remove(addr);
     }
@@ -78,17 +75,21 @@ impl AdapterRegister {
 
 // --
 
-pub struct Adapter {
+pub(crate) struct Adapter {
+    sr: ServantRegister,
+    ar: AdapterRegister,
     max_serve_count: usize,
 }
 
 impl Adapter {
-    pub fn new(max_serve_count: usize) -> Self {
+    pub(crate) fn new(ar: AdapterRegister, sr: ServantRegister, max_serve_count: usize) -> Self {
         Self {
+            sr,
+            ar,
             max_serve_count,
         }
     }
-    pub async fn run(self, stream: TcpStream) -> std::io::Result<()> {
+    pub(crate) async fn run(self, stream: TcpStream) -> std::io::Result<()> {
         #[derive(Debug)]
         enum SelectedValue {
             ReadNone,
@@ -105,12 +106,12 @@ impl Adapter {
 
         let sem = Semaphore::new(self.max_serve_count);
         let (tx, rx) = unbounded();
-        AdapterRegister::instance().insert(addr, tx.clone()).await;
+        self.ar.insert(addr, tx.clone()).await;
 
-        let _adapter_clean = DropGuard::new(addr, |a| {
+        let _adapter_clean = DropGuard::new((addr, self.ar.clone()), |(a, ar)| {
             task::block_on(async move {
                 info!("adapter from {} quit.", &addr);
-                AdapterRegister::instance().remove(&a).await;
+                ar.remove(&a).await;
             });
         });
 
@@ -131,7 +132,8 @@ impl Adapter {
                 SelectedValue::Read(record) => {
                     let g = sem.lock();
                     let tx2 = tx.clone();
-                    task::spawn(serve(g, tx2, record));
+                    let sr = self.sr.clone();
+                    task::spawn(serve(g, sr, tx2, record));
                 }
                 SelectedValue::Write(record) => {
                     write_framed.send(record).await?;
@@ -150,8 +152,7 @@ impl Adapter {
     }
 }
 
-async fn serve(_g: SemaphoreGuard, mut tx: UnboundedSender<Record>, record: Record) {
-    let sr = ServantRegister::instance();
+async fn serve(_g: SemaphoreGuard, sr: ServantRegister, mut tx: UnboundedSender<Record>, record: Record) {
     match record {
         Record::Report { id, oid, msg } => {
             let _id = id;
@@ -169,11 +170,11 @@ async fn serve(_g: SemaphoreGuard, mut tx: UnboundedSender<Record>, record: Reco
                     Err(format!("{} dosen't exist.", &oid).into())
                 }
             } else {
-                if let Some(query) = sr.query_servant() {
-                    let mut q = query.lock().unwrap();
+                if let Some(watch) = sr.watch_servant() {
+                    let mut q = watch.lock().unwrap();
                     Ok(q.serve(req))
                 } else {
-                    Err("query servant dosen't exist.".into())
+                    Err("watch servant dosen't exist.".into())
                 }
             };
             match bincode::serialize(&ret) {

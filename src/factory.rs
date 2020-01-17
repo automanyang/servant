@@ -18,13 +18,15 @@ pub trait Factory {
 // --
 
 // #[derive(serde::Serialize, serde::Deserialize)]
-pub struct FactoryEntry {
+pub struct FactoryEntity {
+    sr: ServantRegister,
     map: HashMap<String, Box<dyn Fn(&str) -> ServantEntry + Send>>,
 }
 
-impl FactoryEntry {
-    pub fn new() -> Self {
+impl FactoryEntity {
+    pub fn new(sr: ServantRegister) -> Self {
         Self {
+            sr,
             map: HashMap::new(),
         }
     }
@@ -41,12 +43,12 @@ impl FactoryEntry {
     }
 }
 
-impl Factory for FactoryEntry {
+impl Factory for FactoryEntity {
     fn create(&self, _ctx: Option<Context>, name: String, category: String) -> ServantResult<Oid> {
         let oid = Oid::new(&name, &category);
         if let Some(f) = self.map.get(&category) {
             let entity = f(&name);
-            ServantRegister::instance().add_servant(&category, entity);
+            self.sr.add_servant(&category, entity);
             Ok(oid)
         } else {
             Err(format!(

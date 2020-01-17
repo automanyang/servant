@@ -3,7 +3,7 @@
 pub use v3::{Semaphore, SemaphoreGuard};
 
 // --
-
+/*
 #[allow(unused)]
 pub mod v1 {
     use crossbeam_channel::{bounded, Receiver, Sender};
@@ -45,7 +45,7 @@ pub mod v1 {
         }
     }
 }
-
+*/
 #[allow(unused)]
 pub mod v2 {
     use {

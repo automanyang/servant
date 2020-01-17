@@ -4,7 +4,6 @@ use {
     crate::{
         freeze::{Freeze, MemoryDb},
         utilities::{List, Pointer},
-        config::Config,
     },
     serde::{Deserialize, Serialize},
     std::sync::{Arc, Mutex, MutexGuard},
@@ -90,27 +89,9 @@ impl Context {
 
 // --
 
-lazy_static! {
-    static ref REGISTER: ServantRegister = ServantRegister({
-        let max_count_of_evictor_list = Config::instance().max_count_of_evictor_list;
-        Mutex::new(_ServantRegister {
-            servants: HashMap::new(),
-            report_servants: HashMap::new(),
-            #[cfg(feature = "default_gateway")]
-            query: Some(Arc::new(Mutex::new(super::gateway::GatewayServant::new(
-                super::gateway::GatewayEntry,
-            )))),
-            #[cfg(not(feature = "default_gateway"))]
-            query: None,
-            evictor: List::new(max_count_of_evictor_list),
-            freeze: Freeze::new(Box::new(MemoryDb::new())),
-        })
-    });
-}
-
 pub(crate) type ServantEntry = Arc<Mutex<dyn Servant + Send>>;
-type ReportServantEntry = Arc<Mutex<dyn ReportServant + Send>>;
-type QueryServantEntry = Arc<Mutex<dyn QueryServant + Send>>;
+pub(crate) type ReportServantEntry = Arc<Mutex<dyn ReportServant + Send>>;
+pub(crate) type WatchServantEntry = Arc<Mutex<dyn WatchServant + Send>>;
 
 #[derive(Clone)]
 struct ServantRecord {
@@ -121,25 +102,32 @@ struct ServantRecord {
 struct _ServantRegister {
     servants: HashMap<Oid, ServantRecord>,
     report_servants: HashMap<Oid, ReportServantEntry>,
-    query: Option<QueryServantEntry>,
+    watch: Option<WatchServantEntry>,
     evictor: List<Oid>,
     freeze: Freeze,
 }
 
-pub struct ServantRegister(Mutex<_ServantRegister>);
+#[derive(Clone)]
+pub struct ServantRegister(Arc<Mutex<_ServantRegister>>);
 impl ServantRegister {
-    pub fn instance() -> &'static Self {
-        &REGISTER
+    pub fn new(max_count_of_evictor_list: usize) -> Self {
+        Self(Arc::new(Mutex::new(_ServantRegister {
+            servants: HashMap::new(),
+            report_servants: HashMap::new(),
+            watch: None,
+            evictor: List::new(max_count_of_evictor_list),
+            freeze: Freeze::new(Box::new(MemoryDb::new())),
+        })))
     }
-    pub fn set_query_servant(&self, query: QueryServantEntry) {
+    pub fn set_watch_servant(&self, watch: WatchServantEntry) -> Option<WatchServantEntry> {
         let mut g = self.0.lock().unwrap();
-        g.query.replace(query);
+        g.watch.replace(watch)
     }
-    pub fn query_servant(&self) -> Option<QueryServantEntry> {
+    pub(crate) fn watch_servant(&self) -> Option<WatchServantEntry> {
         let g = self.0.lock().unwrap();
-        g.query.as_ref().map(Clone::clone)
+        g.watch.as_ref().map(Clone::clone)
     }
-    pub fn find_servant(&self, oid: &Oid) -> Option<ServantEntry> {
+    pub(crate) fn find_servant(&self, oid: &Oid) -> Option<ServantEntry> {
         let mut g = self.0.lock().unwrap();
         if let Some(r) = g.servants.get(&oid).map(|s| s.clone()) {
             if let Some(node) = r.node {
@@ -164,11 +152,11 @@ impl ServantRegister {
             None
         }
     }
-    pub fn find_report_servant(&self, oid: &Oid) -> Option<ReportServantEntry> {
+    pub(crate) fn find_report_servant(&self, oid: &Oid) -> Option<ReportServantEntry> {
         let g = self.0.lock().unwrap();
         g.report_servants.get(&oid).map(|s| s.clone())
     }
-    pub fn add_servant(&self, category: &str, entity: ServantEntry) {
+    pub fn add_servant(&self, category: &str, entity: ServantEntry) -> Option<ServantEntry> {
         let (oid, serializable) = {
             let g = entity.lock().unwrap();
             (
@@ -183,21 +171,29 @@ impl ServantRegister {
         } else {
             None
         };
-        g.servants.insert(
+        if let Some(r) = g.servants.insert(
             oid,
             ServantRecord {
                 servant: entity,
                 node,
             },
-        );
+        ) {
+            Some(r.servant)
+        } else {
+            None
+        }
     }
-    pub fn add_report_servant(&self, category: &str, entry: ReportServantEntry) {
+    pub fn add_report_servant(
+        &self,
+        category: &str,
+        entry: ReportServantEntry,
+    ) -> Option<ReportServantEntry> {
         let oid = {
             let g = entry.lock().unwrap();
             Oid::new(g.name(), category)
         };
         let mut g = self.0.lock().unwrap();
-        g.report_servants.insert(oid, entry);
+        g.report_servants.insert(oid, entry)
     }
     pub fn export_servants(&self) -> Vec<Oid> {
         let g = self.0.lock().unwrap();
@@ -208,7 +204,9 @@ impl ServantRegister {
         g.report_servants.keys().map(|x| x.clone()).collect()
     }
     pub fn enroll_in_freeze<F>(&self, category: &str, f: F) -> ServantResult<()>
-    where F: Fn(&str, &[u8]) -> ServantEntry + 'static + Send, {
+    where
+        F: Fn(&str, &[u8]) -> ServantEntry + 'static + Send,
+    {
         let mut g = self.0.lock().unwrap();
         g.freeze.enroll(category, f)
     }
@@ -243,7 +241,7 @@ pub trait Servant {
     fn serve(&mut self, ctx: Option<Context>, req: Vec<u8>) -> Vec<u8>;
 }
 
-pub trait QueryServant {
+pub trait WatchServant {
     fn serve(&mut self, req: Vec<u8>) -> Vec<u8>;
 }
 
