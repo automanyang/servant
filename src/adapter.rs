@@ -183,7 +183,6 @@ async fn serve(_g: SemaphoreGuard, sr: ServantRegister, mut tx: UnboundedSender<
                     if let Err(e) = tx.send(record).await {
                         warn!("{}", e.to_string());
                     }
-                    dbg!();
                 }
                 Err(e) => warn!("{}", e.to_string()),
             }

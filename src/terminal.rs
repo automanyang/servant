@@ -51,6 +51,7 @@ struct CallbackRecord {
 type CallbackMap = HashMap<RecordId, CallbackRecord>;
 
 struct _Terminal {
+    addr: String,
     req_id: RecordId,
     report_id: RecordId,
     invoke_timeout_ms: u64,
@@ -79,11 +80,13 @@ impl _Terminal {
 pub struct Terminal(Arc<Mutex<_Terminal>>);
 impl Terminal {
     pub fn new(
+        addr: String,
         invoke_timeout_ms: u64,
         token_count_by_terminal: usize,
         max_count_of_callback: usize,
     ) -> Self {
         let mut t = _Terminal {
+            addr,
             req_id: 0,
             report_id: 0,
             invoke_timeout_ms,
@@ -115,22 +118,40 @@ impl Terminal {
         let mut g = self.0.lock().await;
         g.sender = tx;
     }
+    async fn tx_or_reconnect(&self) -> ServantResult<Tx> {
+        {
+            let g = self.0.lock().await;
+            if let Some(tx) = g.sender.as_ref() {
+                return Ok(tx.clone());
+            }
+        }
+
+        if let Err(e) = self.connect_to().await {
+            return Err(e.to_string().into());
+        }
+
+        let g = self.0.lock().await;
+        if let Some(tx) = g.sender.as_ref() {
+            Ok(tx.clone())
+        } else {
+            Err("sender is none.".into())
+        }
+    }
     pub async fn report(&self, oid: Oid, msg: Vec<u8>) -> ServantResult<()> {
-        let mut g = self.0.lock().await;
-        g.report_id += 1;
-        if let Some(mut tx) = g.sender.as_ref() {
-            let record = Record::Report {
+        let record = {
+            let mut g = self.0.lock().await;
+            g.report_id += 1;
+            Record::Report {
                 id: g.report_id,
                 oid,
                 msg,
-            };
-            if let Err(e) = tx.send(record).await {
-                Err(e.to_string().into())
-            } else {
-                Ok(())
             }
+        };
+        let mut tx = self.tx_or_reconnect().await?;
+        if let Err(e) = tx.send(record).await {
+            Err(e.to_string().into())
         } else {
-            Err("sender is none.".into())
+            Ok(())
         }
     }
     pub async fn invoke_with_callback<F>(
@@ -143,20 +164,14 @@ impl Terminal {
     where
         F: 'static + Fn(Option<Oid>, ServantResult<Vec<u8>>) + Send,
     {
-        let mut g = self.0.lock().await;
-        if g.callback_map.len() >= g.max_count_of_callback {
-            return Err("callback map is full.".into());
-        }
-        let mut tx = if let Some(tx) = g.sender.as_ref() {
-            tx.clone()
-        } else {
-            return Err("sender is none.".into());
-        };
-        g.req_id += 1;
-        let id = g.req_id;
-        let timeout_ms = g.timeout_value_in_context(&ctx);
-        assert_eq!(
-            true,
+        let id = {
+            let mut g = self.0.lock().await;
+            if g.callback_map.len() >= g.max_count_of_callback {
+                return Err("callback map is full.".into());
+            }
+            g.req_id += 1;
+            let id = g.req_id;
+            let timeout_ms = g.timeout_value_in_context(&ctx);
             g.callback_map
                 .insert(
                     id,
@@ -166,11 +181,13 @@ impl Terminal {
                         timeout_ms,
                         callback: Box::new(f)
                     }
-                )
-                .is_none()
-        );
+            );
+            id
+        };
         let record = Record::Request { id, ctx, oid, req };
+        let mut tx = self.tx_or_reconnect().await?;
         if let Err(e) = tx.send(record).await {
+            let mut g = self.0.lock().await;
             g.callback_map.remove(&id).unwrap();
             Err(e.to_string().into())
         } else {
@@ -183,22 +200,18 @@ impl Terminal {
         oid: Option<Oid>,
         req: Vec<u8>,
     ) -> ServantResult<Vec<u8>> {
-        let (mut tx, index, token, timeout_ms) = {
+        let (index, token, timeout_ms) = {
             let mut g = self.0.lock().await;
-            let tx = if let Some(tx) = g.sender.as_ref() {
-                tx.clone()
-            } else {
-                return Err("sender is none.".into());
-            };
             if let Some(tok) = g.token_pool.pop() {
                 g.req_id += 1;
                 let id = g.req_id;
                 g.token_map.insert(id, tok.clone());
-                (tx, id, tok, g.timeout_value_in_context(&ctx))
+                (id, tok, g.timeout_value_in_context(&ctx))
             } else {
                 return Err("token pool is empty.".into());
             }
         };
+        let mut tx = self.tx_or_reconnect().await?;
         let ret = match token.m.lock() {
             Ok(m) => {
                 let record = Record::Request {
@@ -267,8 +280,11 @@ impl Terminal {
             Record::Request { .. } => unreachable!(),
         }
     }
-    pub async fn connect_to(&self, addr: String) -> std::io::Result<()> {
-        let stream = TcpStream::connect(addr).await?;
+    pub async fn connect_to(&self) -> std::io::Result<()> {
+        let stream = {
+            let g = self.0.lock().await;
+            TcpStream::connect(&g.addr).await?
+        };
         info!("connected to {}", stream.peer_addr()?);
 
         let conn = self.clone();
@@ -289,12 +305,6 @@ impl Terminal {
             Write(Record),
         }
 
-        // let stream = TcpStream::connect(addr).await?;
-        // info!("connected to {}", stream.peer_addr()?);
-        let (reader, writer) = (&stream, &stream);
-        let read_framed = FramedRead::new(reader, RecordCodec::<u32, Record>::default());
-        let mut write_framed = FramedWrite::new(writer, RecordCodec::<u32, Record>::default());
-
         let (tx, rx) = unbounded();
         self.set_tx(Some(tx)).await;
         let _terminal_clean = DropGuard::new(self.clone(), |t| {
@@ -304,7 +314,11 @@ impl Terminal {
             });
         });
 
+        let (reader, writer) = (&stream, &stream);
+        let read_framed = FramedRead::new(reader, RecordCodec::<u32, Record>::default());
+        let mut write_framed = FramedWrite::new(writer, RecordCodec::<u32, Record>::default());
         let interval = stream::interval(Duration::from_millis(1000));
+
         pin_mut!(read_framed, rx, interval);
         loop {
             let value = select! {

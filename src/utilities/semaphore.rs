@@ -138,7 +138,6 @@ pub mod v3 {
                 assert!(g.0 > 0);
                 g.0 -= 1;
             }
-            dbg!();
         }
         pub fn release(&self) {
             let mut g = self.0.count.lock().unwrap();
@@ -146,7 +145,6 @@ pub mod v3 {
             if g.1 > 0 {
                 self.0.cv.notify_one();
             }
-            dbg!();
         }
         #[inline]
         pub fn lock(&self) -> SemaphoreGuard {
