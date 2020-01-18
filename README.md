@@ -119,15 +119,21 @@ xt@sf315:~/dev/rust/async/target/debug$ ./hello_server
 
 4. Proxy：Servant对象在客户端的代理，客户端通过Proxy发出请求调用。
 
-5. Terminal：代表了客户端的网络层，所有Proxy都是基于Terminal创建的。客户端连接到服务端后，就会产生一个Terminal。
+5. Terminal：代表了Client的网络层，所有Proxy都是基于Terminal创建的。客户端连接到服务端后，就会产生一个Terminal。
 
-6. Adapter：代表了服务端的网络层，服务端在接收到客户端的网络连接请求后，创建一个Adapter与客户端进行网络通信。Terminal与Adapter是一对一的关系。
+6. Adapter：代表了Server的网络层，服务端在接收到客户端的网络连接请求后，创建一个Adapter与客户端进行网络通信。Terminal与Adapter是一对一的关系。
+
+7. Client：客户端，用来连接Server，生成Terminal。
+
+8. Server：服务端，实现接口功能，向Client提供服务。
+
+9. Application：就是独立的可执行程序，可以是客户端应用，也可以是服务端应用。每个应用可以有多个Client或Server。
 
 ### 接口类型
 
 1. invoke接口：接口中的方法可以有返回值，客户端发出请求后，调用线程被阻塞直到服务端答复请求或超时，服务端使用返回值答复客户端的请求。
 
-2. watch接口：就像一个特殊的invoke接口，每个服务端只能有一个实现watch接口的对象。此接口中定义服务端基本的信息，客户端可以获取这些基本信息。相比与其他invoke接口，此接口的实现对象没有Oid，所以客户端可以不需要Oid就发出请求。
+2. watch接口：就像一个特殊的invoke接口，每个服务端只能有一个watch接口的对象。此接口中定义服务端基本的信息，客户端可以获取这些基本信息。相比与其他invoke接口，此接口的实现对象没有Oid，所以客户端可以不需要Oid就发出请求。
 
 3. report接口：接口中的方法没有返回值，客户端发出请求后不会阻塞，服务端也不会对请求做任何答复。本接口的数据流方向只能是从客户端到服务端。
 

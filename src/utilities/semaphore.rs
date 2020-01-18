@@ -165,7 +165,7 @@ pub mod v3 {
 #[allow(unused)]
 pub mod v4 {
     use std::{
-        sync::{Arc, Condvar, Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard},
+        sync::{Condvar, Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard},
     };
 
     // --
