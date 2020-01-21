@@ -1,7 +1,7 @@
 // -- freeze.rs --
 
 use {
-    crate::servant::{Oid, ServantResult, ServantEntry},
+    crate::servant::{Oid, ServantResult, ServantEntity},
     std::collections::HashMap,
     log::{warn}
 };
@@ -24,12 +24,10 @@ impl MemoryDb {
 
 impl Storage for MemoryDb {
     fn store(&mut self, oid: &Oid, bytes: &[u8]) -> ServantResult<()> {
-        dbg!(oid);
         self.0.insert(oid.clone(), bytes.to_vec());
         Ok(())
     }
     fn load(&mut self, oid: &Oid) -> ServantResult<Vec<u8>> {
-        dbg!(oid);
         if let Some(v) = self.0.remove(oid) {
             Ok(v)
         } else {
@@ -41,7 +39,7 @@ impl Storage for MemoryDb {
 // --
 
 pub struct Freeze {
-    map: HashMap<String, Box<dyn Fn(&str, &[u8]) -> ServantEntry + Send>>,
+    map: HashMap<String, Box<dyn Fn(&str, &[u8]) -> ServantEntity + Send>>,
     db: Box<dyn Storage + Send>,
 }
 
@@ -54,7 +52,7 @@ impl Freeze {
     }
     pub fn enroll<F>(&mut self, category: &str, f: F) -> ServantResult<()>
     where
-        F: Fn(&str, &[u8]) -> ServantEntry + 'static + Send,
+        F: Fn(&str, &[u8]) -> ServantEntity + 'static + Send,
     {
         if self.map.get(category).is_none() {
             self.map.insert(category.to_string(), Box::new(f));
@@ -66,7 +64,7 @@ impl Freeze {
     pub fn store(&mut self, oid: &Oid, bytes: &[u8]) -> ServantResult<()> {
         self.db.store(oid, bytes)
     }
-    pub fn load(&mut self, oid: &Oid) -> Option<ServantEntry> {
+    pub fn load(&mut self, oid: &Oid) -> Option<ServantEntity> {
         let category = oid.category();
         match self.db.load(oid) {
             Ok(bytes) => {

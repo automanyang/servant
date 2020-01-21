@@ -2,10 +2,11 @@
 
 use {
     super::{
-        utilities::{DropGuard, Semaphore, SemaphoreGuard},
+        utilities::{DropGuard},
         servant::{Record, ServantRegister, ServantResult},
+        sync::{Arc, Mutex, Semaphore, SemaphoreGuard}, task
     },
-    async_std::{net::TcpStream, prelude::*, sync::{Arc, Mutex}, task},
+    async_std::{net::TcpStream, prelude::*, },
     codec::RecordCodec,
     futures::{
         channel::mpsc::{unbounded, UnboundedSender},
@@ -130,7 +131,7 @@ impl Adapter {
 
             match value {
                 SelectedValue::Read(record) => {
-                    let g = sem.lock();
+                    let g = sem.lock().await;
                     let tx2 = tx.clone();
                     let sr = self.sr.clone();
                     task::spawn(serve(g, sr, tx2, record));
@@ -156,22 +157,22 @@ async fn serve(_g: SemaphoreGuard, sr: ServantRegister, mut tx: UnboundedSender<
     match record {
         Record::Report { id, oid, msg } => {
             let _id = id;
-            if let Some(servant) = sr.find_report_servant(&oid) {
-                servant.lock().unwrap().serve(msg);
+            if let Some(servant) = sr.find_report_servant(&oid).await {
+                servant.lock().await.serve(msg);
             } else {
                 warn!("{} dosen't exist.", &oid);
             }
         }
         Record::Request { id, ctx, oid, req } => {
             let ret: ServantResult<Vec<u8>> = if let Some(oid) = &oid {
-                if let Some(servant) = sr.find_servant(oid) {
-                    Ok(servant.lock().unwrap().serve(ctx, req))
+                if let Some(servant) = sr.find_servant(oid).await {
+                    Ok(servant.lock().await.serve(ctx, req))
                 } else {
                     Err(format!("{} dosen't exist.", &oid).into())
                 }
             } else {
-                if let Some(watch) = sr.watch_servant() {
-                    let mut q = watch.lock().unwrap();
+                if let Some(watch) = sr.watch_servant().await {
+                    let mut q = watch.lock().await;
                     Ok(q.serve(req))
                 } else {
                     Err("watch servant dosen't exist.".into())

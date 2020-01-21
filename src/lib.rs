@@ -15,12 +15,17 @@ extern crate servant_macro;
 
 #[cfg(feature = "invoke")]
 pub use servant_macro::invoke_interface;
-#[cfg(feature = "notify")]
-pub use servant_macro::notify_interface;
-#[cfg(feature = "report")]
-pub use servant_macro::report_interface;
 #[cfg(feature = "watch")]
 pub use servant_macro::watch_interface;
+#[cfg(feature = "report")]
+pub use servant_macro::report_interface;
+#[cfg(feature = "notify")]
+pub use servant_macro::notify_interface;
+
+// --
+
+#[macro_use]
+mod macros;
 
 mod config;
 mod db;
@@ -28,15 +33,21 @@ mod freeze;
 mod servant;
 mod utilities;
 
-#[cfg(feature = "adapter")]
-mod adapter;
-#[cfg(feature = "adapter")]
-mod server;
+mod sync;
+mod task;
+// pub use {sync, task};
 
-#[cfg(feature = "terminal")]
-mod client;
-#[cfg(feature = "terminal")]
-mod terminal;
+cfg_adapter! {
+    mod adapter;
+    mod server;
+    pub use {adapter::AdapterRegister, server::Server};
+}
+
+cfg_terminal! {
+    mod client;
+    mod terminal;
+    pub use {client::Client, terminal::Terminal};
+}
 
 #[cfg(feature = "gateway_entity")]
 mod gateway;
@@ -53,12 +64,6 @@ pub use crate::servant::{
     Context, NotifyServant, Oid, ReportServant, Servant, ServantError, ServantRegister,
     ServantResult, UserCookie, WatchServant,
 };
-
-#[cfg(feature = "adapter")]
-pub use {adapter::AdapterRegister, server::Server};
-
-#[cfg(feature = "terminal")]
-pub use {client::Client, terminal::Terminal};
 
 #[cfg(all(feature = "gateway_entity", feature = "terminal"))]
 pub use gateway::GatewayProxy;

@@ -5,8 +5,8 @@ use {
         self as servant,
         adapter::AdapterRegister,
         servant::{Context},
+        task,
     },
-    async_std::task,
 };
 
 // --

@@ -4,9 +4,9 @@ use {
     crate::{
         freeze::{Freeze, MemoryDb},
         utilities::{List, Pointer},
+        sync::{Arc, Mutex, MutexGuard},
     },
     serde::{Deserialize, Serialize},
-    std::sync::{Arc, Mutex, MutexGuard},
     std::{collections::HashMap, error::Error, net::SocketAddr},
 };
 
@@ -89,20 +89,20 @@ impl Context {
 
 // --
 
-pub(crate) type ServantEntry = Arc<Mutex<dyn Servant + Send>>;
-pub(crate) type ReportServantEntry = Arc<Mutex<dyn ReportServant + Send>>;
-pub(crate) type WatchServantEntry = Arc<Mutex<dyn WatchServant + Send>>;
+pub(crate) type ServantEntity = Arc<Mutex<Box<dyn Servant + Send>>>;
+pub(crate) type ReportServantEntity = Arc<Mutex<Box<dyn ReportServant + Send>>>;
+pub(crate) type WatchServantEntity = Arc<Mutex<Box<dyn WatchServant + Send>>>;
 
 #[derive(Clone)]
 struct ServantRecord {
-    servant: ServantEntry,
+    servant: ServantEntity,
     node: Option<Pointer<Oid>>,
 }
 
 struct _ServantRegister {
     servants: HashMap<Oid, ServantRecord>,
-    report_servants: HashMap<Oid, ReportServantEntry>,
-    watch: Option<WatchServantEntry>,
+    report_servants: HashMap<Oid, ReportServantEntity>,
+    watch: Option<WatchServantEntity>,
     evictor: List<Oid>,
     freeze: Freeze,
 }
@@ -119,16 +119,16 @@ impl ServantRegister {
             freeze: Freeze::new(Box::new(MemoryDb::new())),
         })))
     }
-    pub fn set_watch_servant(&self, watch: WatchServantEntry) -> Option<WatchServantEntry> {
-        let mut g = self.0.lock().unwrap();
+    pub async fn set_watch_servant(&self, watch: WatchServantEntity) -> Option<WatchServantEntity> {
+        let mut g = self.0.lock().await;
         g.watch.replace(watch)
     }
-    pub(crate) fn watch_servant(&self) -> Option<WatchServantEntry> {
-        let g = self.0.lock().unwrap();
+    pub(crate) async fn watch_servant(&self) -> Option<WatchServantEntity> {
+        let g = self.0.lock().await;
         g.watch.as_ref().map(Clone::clone)
     }
-    pub(crate) fn find_servant(&self, oid: &Oid) -> Option<ServantEntry> {
-        let mut g = self.0.lock().unwrap();
+    pub(crate) async fn find_servant(&self, oid: &Oid) -> Option<ServantEntity> {
+        let mut g = self.0.lock().await;
         if let Some(r) = g.servants.get(&oid).map(|s| s.clone()) {
             if let Some(node) = r.node {
                 g.evictor.top(node);
@@ -136,7 +136,7 @@ impl ServantRegister {
             return Some(r.servant);
         }
         if let Some(s) = g.freeze.load(oid) {
-            evict_last_one(&mut g);
+            evict_last_one(&mut g).await;
             let node = Some(g.evictor.push(oid.clone()));
             if let Some(_) = g.servants.insert(
                 oid.clone(),
@@ -152,21 +152,21 @@ impl ServantRegister {
             None
         }
     }
-    pub(crate) fn find_report_servant(&self, oid: &Oid) -> Option<ReportServantEntry> {
-        let g = self.0.lock().unwrap();
+    pub(crate) async fn find_report_servant(&self, oid: &Oid) -> Option<ReportServantEntity> {
+        let g = self.0.lock().await;
         g.report_servants.get(&oid).map(|s| s.clone())
     }
-    pub fn add_servant(&self, category: &str, entity: ServantEntry) -> Option<ServantEntry> {
+    pub async fn add_servant(&self, category: &str, entity: ServantEntity) -> Option<ServantEntity> {
         let (oid, serializable) = {
-            let g = entity.lock().unwrap();
+            let g = entity.lock().await;
             (
                 Oid::new(g.name(), category),
                 !(g.dump() == Err(ServantError::NoSupportSerializable)),
             )
         };
-        let mut g = self.0.lock().unwrap();
+        let mut g = self.0.lock().await;
         let node = if serializable {
-            evict_last_one(&mut g);
+            evict_last_one(&mut g).await;
             Some(g.evictor.push(oid.clone()))
         } else {
             None
@@ -183,49 +183,49 @@ impl ServantRegister {
             None
         }
     }
-    pub fn add_report_servant(
+    pub async fn add_report_servant(
         &self,
         category: &str,
-        entry: ReportServantEntry,
-    ) -> Option<ReportServantEntry> {
+        entity: ReportServantEntity,
+    ) -> Option<ReportServantEntity> {
         let oid = {
-            let g = entry.lock().unwrap();
+            let g = entity.lock().await;
             Oid::new(g.name(), category)
         };
-        let mut g = self.0.lock().unwrap();
-        g.report_servants.insert(oid, entry)
+        let mut g = self.0.lock().await;
+        g.report_servants.insert(oid, entity)
     }
-    pub fn export_servants(&self) -> Vec<Oid> {
-        let g = self.0.lock().unwrap();
+    pub async fn export_servants(&self) -> Vec<Oid> {
+        let g = self.0.lock().await;
         g.servants.keys().map(|x| x.clone()).collect()
     }
-    pub fn export_report_servants(&self) -> Vec<Oid> {
-        let g = self.0.lock().unwrap();
+    pub async fn export_report_servants(&self) -> Vec<Oid> {
+        let g = self.0.lock().await;
         g.report_servants.keys().map(|x| x.clone()).collect()
     }
-    pub fn enroll_in_freeze<F>(&self, category: &str, f: F) -> ServantResult<()>
+    pub async fn enroll_in_freeze<F>(&self, category: &str, f: F) -> ServantResult<()>
     where
-        F: Fn(&str, &[u8]) -> ServantEntry + 'static + Send,
+        F: Fn(&str, &[u8]) -> ServantEntity + 'static + Send,
     {
-        let mut g = self.0.lock().unwrap();
+        let mut g = self.0.lock().await;
         g.freeze.enroll(category, f)
     }
 }
 
 #[allow(unused)]
-fn evict_all(mg: &mut MutexGuard<'_, _ServantRegister>) {
+async fn evict_all(mg: &mut MutexGuard<'_, _ServantRegister>) {
     while let Some(abandoner) = mg.evictor.pop() {
         if let Some(r) = mg.servants.remove(&abandoner) {
-            let v: Vec<u8> = { r.servant.lock().unwrap().dump().unwrap() };
+            let v: Vec<u8> = { r.servant.lock().await.dump().unwrap() };
             mg.freeze.store(&abandoner, &v).unwrap();
         }
     }
 }
 
-fn evict_last_one(mg: &mut MutexGuard<'_, _ServantRegister>) {
+async fn evict_last_one(mg: &mut MutexGuard<'_, _ServantRegister>) {
     if let Some(abandoner) = mg.evictor.evict() {
         if let Some(r) = mg.servants.remove(&abandoner) {
-            let v: Vec<u8> = { r.servant.lock().unwrap().dump().unwrap() };
+            let v: Vec<u8> = { r.servant.lock().await.dump().unwrap() };
             mg.freeze.store(&abandoner, &v).unwrap();
         }
     }

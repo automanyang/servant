@@ -1,6 +1,6 @@
 // -- semaphore.rs --
 
-pub use v3::{Semaphore, SemaphoreGuard};
+// pub use v3::{Semaphore, SemaphoreGuard};
 
 // --
 /*

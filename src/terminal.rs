@@ -3,13 +3,13 @@
 use {
     crate::{
         servant::{Context, NotifyServant, Oid, Record, ServantResult},
+        sync::{Arc, Condvar, Mutex},
         utilities::DropGuard,
     },
     async_std::{
         net::TcpStream,
         prelude::*,
         stream,
-        sync::{Arc, Mutex},
         task,
     },
     codec::RecordCodec,
@@ -23,7 +23,6 @@ use {
     log::{info, warn},
     std::{
         collections::HashMap,
-        sync::{Condvar, Mutex as StdMutex},
         time::{Duration, SystemTime},
     },
 };
@@ -34,7 +33,7 @@ type RecordId = usize;
 type Tx = UnboundedSender<Record>;
 #[derive(Debug)]
 struct _Token {
-    m: StdMutex<Option<ServantResult<Vec<u8>>>>,
+    m: Mutex<Option<ServantResult<Vec<u8>>>>,
     cv: Condvar,
 }
 type Token = Arc<_Token>;
@@ -95,11 +94,11 @@ impl Terminal {
             token_map: TokenMap::new(),
             max_count_of_callback,
             callback_map: CallbackMap::new(),
-            receiver: None
+            receiver: None,
         };
         for _ in 0..token_count_by_terminal {
             let r = _Token {
-                m: StdMutex::new(None),
+                m: Mutex::new(None),
                 cv: Condvar::default(),
             };
             t.token_pool.push(Arc::new(r));
@@ -172,15 +171,14 @@ impl Terminal {
             g.req_id += 1;
             let id = g.req_id;
             let timeout_ms = g.timeout_value_in_context(&ctx);
-            g.callback_map
-                .insert(
-                    id,
-                    CallbackRecord {
-                        start: SystemTime::now(),
-                        oid: oid.clone(),
-                        timeout_ms,
-                        callback: Box::new(f)
-                    }
+            g.callback_map.insert(
+                id,
+                CallbackRecord {
+                    start: SystemTime::now(),
+                    oid: oid.clone(),
+                    timeout_ms,
+                    callback: Box::new(f),
+                },
             );
             id
         };
@@ -211,31 +209,26 @@ impl Terminal {
                 return Err("token pool is empty.".into());
             }
         };
+        let record = Record::Request {
+            id: index,
+            ctx,
+            oid,
+            req,
+        };
         let mut tx = self.tx_or_reconnect().await?;
-        let ret = match token.m.lock() {
-            Ok(m) => {
-                let record = Record::Request {
-                    id: index,
-                    ctx,
-                    oid,
-                    req,
-                };
-                if let Err(e) = tx.send(record).await {
-                    Err(e.to_string().into())
-                } else {
-                    match token.cv.wait_timeout(m, Duration::from_millis(timeout_ms)) {
-                        Ok(mut r) => {
-                            if r.1.timed_out() {
-                                Err("timed_out.".into())
-                            } else {
-                                r.0.take().unwrap()
-                            }
-                        }
-                        Err(e) => Err(e.to_string().into()),
-                    }
-                }
+        let ret = if let Err(e) = tx.send(record).await {
+            Err(e.to_string().into())
+        } else {
+            let g = token.m.lock().await;
+            let mut r = token
+                .cv
+                .wait_timeout(g, Duration::from_millis(timeout_ms))
+                .await;
+            if r.1.timed_out() {
+                Err("timed_out.".into())
+            } else {
+                r.0.take().unwrap()
             }
-            Err(e) => Err(e.to_string().into()),
         };
         {
             let mut g = self.0.lock().await;
@@ -264,7 +257,7 @@ impl Terminal {
                     Err(e) => Err(e.to_string().into()),
                 };
                 if let Some(token) = token {
-                    let mut g = token.m.lock().unwrap();
+                    let mut g = token.m.lock().await;
                     g.replace(ret);
                     token.cv.notify_one();
                 } else if let Some(r) = callback {

@@ -3,7 +3,8 @@
 use {
     crate::{
         self as servant,
-        servant::{Context, Oid, ServantEntry, ServantRegister, ServantResult},
+        servant::{Context, Oid, ServantEntity, ServantRegister, ServantResult},
+        task
     },
     std::collections::HashMap,
 };
@@ -20,7 +21,7 @@ pub trait Factory {
 // #[derive(serde::Serialize, serde::Deserialize)]
 pub struct FactoryEntity {
     sr: ServantRegister,
-    map: HashMap<String, Box<dyn Fn(&str) -> ServantEntry + Send>>,
+    map: HashMap<String, Box<dyn Fn(&str) -> ServantEntity + Send>>,
 }
 
 impl FactoryEntity {
@@ -32,7 +33,7 @@ impl FactoryEntity {
     }
     pub fn enroll<F>(&mut self, category: &str, f: F) -> ServantResult<()>
     where
-        F: Fn(&str) -> ServantEntry + 'static + Send,
+        F: Fn(&str) -> ServantEntity + 'static + Send,
     {
         if self.map.get(&category.to_string()).is_none() {
             self.map.insert(category.to_string(), Box::new(f));
@@ -47,8 +48,10 @@ impl Factory for FactoryEntity {
     fn create(&self, _ctx: Option<Context>, name: String, category: String) -> ServantResult<Oid> {
         let oid = Oid::new(&name, &category);
         if let Some(f) = self.map.get(&category) {
-            let entity = f(&name);
-            self.sr.add_servant(&category, entity);
+            task::block_on(async {
+                let entity = f(&name);
+                self.sr.add_servant(&category, entity).await;
+            });
             Ok(oid)
         } else {
             Err(format!(

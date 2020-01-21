@@ -4,6 +4,7 @@ use {
     crate::{
         self as servant,
         servant::{Oid, ServantRegister, UserCookie},
+        task,
     },
 };
 
@@ -30,10 +31,14 @@ impl GatewayEntity {
 
 impl Gateway for GatewayEntity {
     fn export_servants(&self) -> Vec<Oid> {
-        self.sr.export_servants()
+        task::block_on(async {
+            self.sr.export_servants().await
+        })
     }
     fn export_report_servants(&self) -> Vec<Oid> {
-        self.sr.export_report_servants()
+        task::block_on(async {
+            self.sr.export_report_servants().await
+        })
     }
     fn login(&self, _name: String, _password: String) -> UserCookie {
         238
