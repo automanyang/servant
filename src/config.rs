@@ -1,5 +1,6 @@
 // -- config.rs --
 
+cfg_server_or_client!{
 use {
     log::{info, warn},
     std::{
@@ -38,17 +39,17 @@ fn store_json_str(file_name: &str, json_str: &str) {
         }
     };
 }
+}
 
 // --
 
-#[cfg(feature = "adapter")]
+cfg_server!{
 #[cfg_attr(test, derive(Debug))]
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct Server {
     pub max_count_of_evictor_list: usize,
     pub serve_count_by_adapter: usize,
 }
-#[cfg(feature = "adapter")]
 impl Server {
     fn file_name() -> &'static str {
         "./server.json"
@@ -78,16 +79,16 @@ impl Server {
         store_json_str(Self::file_name(), &json_str);
     }
 }
-#[cfg(feature = "adapter")]
 impl Drop for Server {
     fn drop(&mut self) {
         self.store();
     }
 }
+}
 
 // --
 
-#[cfg(feature = "terminal")]
+cfg_client! {
 #[cfg_attr(test, derive(Debug))]
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct Client {
@@ -95,7 +96,6 @@ pub struct Client {
     pub callback_count_by_terminal: usize,
     pub invoke_timeout_in_terminal: u64,
 }
-#[cfg(feature = "terminal")]
 impl Client {
     fn file_name() -> &'static str {
         "./client.json"
@@ -127,29 +127,31 @@ impl Client {
     }
 }
 
-#[cfg(feature = "terminal")]
 impl Drop for Client {
     fn drop(&mut self) {
         self.store();
     }
 }
+}
 
 // --
 
-#[cfg(test)]
+cfg_server_or_client!{
 mod tests {
-    use super::*;
 
     #[test]
     fn config_test_client() {
+        use super::*;
         let mut c = Client::load();
         c.invoke_timeout_in_terminal = 3000;
         dbg!(&c);
     }
     #[test]
     fn config_test_server() {
+        use super::*;
         let mut c = Server::load();
         c.max_count_of_evictor_list = 8;
         dbg!(&c);
     }
+}
 }

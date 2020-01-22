@@ -3,7 +3,6 @@
 use {
     crate::servant::{Oid, ServantResult, ServantEntity},
     std::collections::HashMap,
-    log::{warn}
 };
 
 // --
@@ -71,12 +70,12 @@ impl Freeze {
                 if let Some(f) = self.map.get(&category.to_string()) {
                     Some(f(oid.name(), &bytes))
                 } else {
-                    warn!("category: {}, create fn dosen't exist in freeze.", category);
+                    log::warn!("category: {}, create fn dosen't exist in freeze.", category);
                     None
                 }
             }
             Err(e) => {
-                warn!("laod_from_db({}) error({})", oid, e.to_string());
+                log::warn!("laod_from_db({}) error({})", oid, e.to_string());
                 None
             }
         }

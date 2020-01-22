@@ -1,7 +1,7 @@
 // -- adapter.rs --
 
 use {
-    super::{
+    crate::{
         utilities::{DropGuard},
         servant::{Record, ServantRegister, ServantResult},
         sync::{Arc, Mutex, Semaphore, SemaphoreGuard}, task

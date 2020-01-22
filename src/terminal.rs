@@ -215,20 +215,22 @@ impl Terminal {
             oid,
             req,
         };
-        let mut tx = self.tx_or_reconnect().await?;
-        let ret = if let Err(e) = tx.send(record).await {
-            Err(e.to_string().into())
-        } else {
-            let g = token.m.lock().await;
-            let mut r = token
-                .cv
-                .wait_timeout(g, Duration::from_millis(timeout_ms))
-                .await;
-            if r.1.timed_out() {
-                Err("timed_out.".into())
+        let ret = match self.tx_or_reconnect().await {
+            Err(e) => Err(e),
+            Ok(mut tx) => if let Err(e) = tx.send(record).await {
+                Err(e.to_string().into())
             } else {
-                r.0.take().unwrap()
-            }
+                let g = token.m.lock().await;
+                let mut r = token
+                    .cv
+                    .wait_timeout(g, Duration::from_millis(timeout_ms))
+                    .await;
+                if r.1.timed_out() {
+                    Err("timed_out.".into())
+                } else {
+                    r.0.take().unwrap()
+                }
+            },
         };
         {
             let mut g = self.0.lock().await;

@@ -1,11 +1,12 @@
 // -- utilities/mod.rs --
 
-mod semaphore;
-mod list;
-mod drop_guard;
+cfg_server! {
+    mod list;
+    pub use list::{List, Pointer};
+}
 
 // --
 
-// pub use semaphore::{Semaphore, SemaphoreGuard};
-pub use list::{List, Pointer};
+mod drop_guard;
 pub use drop_guard::DropGuard;
+
