@@ -287,7 +287,12 @@ impl Terminal {
             let r = conn.run(stream).await;
             info!("terminal run result: {:?}", r);
         });
-        task::sleep(Duration::from_secs(1)).await;
+        loop {
+            task::sleep(Duration::from_micros(10)).await;
+            if self.0.lock().await.sender.is_some() {
+                break;
+            }
+        }
         Ok(())
     }
     async fn run(&self, stream: TcpStream) -> std::io::Result<()> {

@@ -12,7 +12,7 @@ use {
         task,
     },
     futures::{channel::mpsc::unbounded, pin_mut, select, FutureExt as _},
-    log::info,
+    log::{info, warn},
 };
 
 // --
@@ -38,7 +38,7 @@ impl<T: Clone> Server<T> {
     }
     pub fn set_notifier<F>(&mut self, f: F) -> Option<T>
     where
-        F: 'static + Fn(AdapterRegister) -> T,
+        F: 'static + FnOnce(AdapterRegister) -> T,
     {
         let ar = self.ar.clone();
         self.notifier.replace(f(ar))
@@ -78,9 +78,13 @@ impl<T: Clone> Server<T> {
             };
             match value {
                 SelectedValue::Incoming(stream) => {
-                    info!("Accepting from: {}", stream.peer_addr()?);
-                    let adapter = Adapter::new(self.ar.clone(), self.sr.clone(), serve_count);
-                    let _handle = task::spawn(adapter.run(stream));
+                    if self.ar.count().await == self.config.max_count_of_connection {
+                        warn!("too many connections. drop the connection from {}", stream.peer_addr()?);
+                    } else {
+                        info!("Accepting from: {}", stream.peer_addr()?);
+                        let adapter = Adapter::new(self.ar.clone(), self.sr.clone(), serve_count);
+                        task::spawn(adapter.run(stream));
+                    }
                 }
                 _ => {
                     info!("accept loop break due to {:?}", value);

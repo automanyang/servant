@@ -1,6 +1,6 @@
 // -- config.rs --
 
-cfg_server_or_client!{
+cfg_server_or_client! {
 use {
     log::{info, warn},
     std::{
@@ -43,11 +43,12 @@ fn store_json_str(file_name: &str, json_str: &str) {
 
 // --
 
-cfg_server!{
+cfg_server! {
 #[cfg_attr(test, derive(Debug))]
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct Server {
     pub max_count_of_evictor_list: usize,
+    pub max_count_of_connection: usize,
     pub serve_count_by_adapter: usize,
 }
 impl Server {
@@ -63,6 +64,7 @@ impl Server {
                 info!("server use default configuration");
                 Self {
                     max_count_of_evictor_list: 5,
+                    max_count_of_connection: 10,
                     serve_count_by_adapter: 3,
                 }
             }
@@ -136,7 +138,7 @@ impl Drop for Client {
 
 // --
 
-cfg_server_or_client!{
+cfg_server_or_client! {
 mod tests {
 
     #[test]
