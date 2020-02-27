@@ -19,11 +19,10 @@ server = ["servant-macro/server"]
 client = ["servant-macro/client"]
 admin_entity = ["client", "server"]
 factory_entity = ["client", "server"]
-gateway_entity = ["client", "server"]
+help_entity = ["client", "server"]
 
-# default = ["default_gateway", "invoke"]
 full = ["server", "client",
-    "admin_entity", "factory_entity", "gateway_entity"]
+    "admin_entity", "factory_entity", "help_entity"]
 
 [dependencies]
 log = "^0.4.8"
@@ -36,6 +35,7 @@ serde = { version = "^1.0", features = ["derive"]}
 bincode = { version = "^1.2.1" }
 serde_json = {version = "^1.0.44" }
 rusqlite = { version = "^0.21.0" }
+rand = { version = "^0.7.3" }
 # crossbeam-channel = { version = "^0.4.0" }
 # lazy_static = "^1.4.0"
 

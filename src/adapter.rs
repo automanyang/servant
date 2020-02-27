@@ -23,7 +23,6 @@ use {
 // --
 
 struct _Register {
-    passcode: usize,
     id: usize,
     accept_tx: Option<UnboundedSender<()>>,
     senders: HashMap<SocketAddr, UnboundedSender<Record>>,
@@ -34,18 +33,15 @@ pub struct AdapterRegister(Arc<Mutex<_Register>>);
 impl AdapterRegister {
     pub(crate) fn new() -> Self {
         Self(Arc::new(Mutex::new(_Register {
-            passcode: 238,
             id: 0,
             accept_tx: None,
             senders: HashMap::new(),
         })))
     }
-    pub async fn clean(&self, passcode: usize) {
+    pub async fn clean(&self) {
         let mut g = self.0.lock().await;
-        if passcode == g.passcode {
-            g.accept_tx.take();
-            g.senders.clear();
-        }
+        g.accept_tx.take();
+        g.senders.clear();
     }
     pub(crate) async fn count(&self) -> usize {
         let g = self.0.lock().await;
@@ -62,6 +58,10 @@ impl AdapterRegister {
     pub(crate) async fn remove(&self, addr: &SocketAddr) {
         let mut g = self.0.lock().await;
         g.senders.remove(addr);
+    }
+    pub(crate) async fn list(&self) -> Vec<SocketAddr> {
+        let g = self.0.lock().await;
+        g.senders.iter().map(|v| v.0.clone()).collect()
     }
     pub async fn send(&self, msg: Vec<u8>) {
         let mut g = self.0.lock().await;
@@ -271,7 +271,7 @@ async fn serve2(
                     let mut q = watch.lock().await;
                     Ok(q.serve(req))
                 } else {
-                    Err("watch servant dosen't exist.".into())
+                    Err("help servant dosen't exist.".into())
                 }
             };
             match bincode::serialize(&ret) {

@@ -10,3 +10,6 @@ cfg_server! {
 mod drop_guard;
 pub use drop_guard::DropGuard;
 
+#[macro_use]
+mod remote_error;
+pub use remote_error::{RemoteResult, RemoteError, GeneralResult, GeneralResultWithSend};

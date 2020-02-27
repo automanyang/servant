@@ -2,7 +2,7 @@
 
 use {
     crate::{
-        servant::{Context, NotifyServant, Oid, Record, ServantResult},
+        servant::{Context, NotifyServant, Oid, Record, ServantResult, ConnectionId},
         sync::{Arc, Condvar, Mutex},
         utilities::DropGuard,
     },
@@ -51,6 +51,7 @@ type CallbackMap = HashMap<RecordId, CallbackRecord>;
 
 struct _Terminal {
     addr: String,
+    conn_id: Option<ConnectionId>,
     req_id: RecordId,
     report_id: RecordId,
     invoke_timeout_ms: u64,
@@ -86,6 +87,7 @@ impl Terminal {
     ) -> Self {
         let mut t = _Terminal {
             addr,
+            conn_id: None,
             req_id: 0,
             report_id: 0,
             invoke_timeout_ms,
@@ -116,6 +118,14 @@ impl Terminal {
     async fn set_tx(&self, tx: Option<Tx>) {
         let mut g = self.0.lock().await;
         g.sender = tx;
+    }
+    async fn set_conn_id(&self, id: ConnectionId) {
+        let mut g = self.0.lock().await;
+        g.conn_id.replace(id);
+    }
+    pub async fn conn_id(&self) -> Option<ConnectionId> {
+        let g = self.0.lock().await;
+        g.conn_id.clone()
     }
     async fn tx_or_reconnect(&self) -> ServantResult<Tx> {
         {
@@ -307,6 +317,7 @@ impl Terminal {
 
         let (tx, rx) = unbounded();
         self.set_tx(Some(tx)).await;
+        self.set_conn_id(stream.local_addr()?).await;
         let _terminal_clean = DropGuard::new(self.clone(), |t| {
             task::block_on(async move {
                 info!("terminal quit.");

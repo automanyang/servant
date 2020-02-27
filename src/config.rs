@@ -6,6 +6,7 @@ use {
     std::{
         fs::File,
         io::{Read, Write},
+        collections::HashMap,
     },
 };
 
@@ -44,9 +45,48 @@ fn store_json_str(file_name: &str, json_str: &str) {
 // --
 
 cfg_server! {
-#[cfg_attr(test, derive(Debug))]
-#[derive(serde::Serialize, serde::Deserialize)]
+// #[cfg_attr(test, derive(Debug))]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub(crate) struct HelpData {
+    pub(crate) name: String,
+    pub(crate) about: String,
+    pub(crate) readme: String,
+    pub(crate) version: String,
+    pub(crate) context: HashMap<String, String>,
+}
+impl HelpData {
+    fn new() -> Self {
+        Self {
+            name: String::new(),
+            about: String::new(),
+            readme: String::new(),
+            version: String::new(),
+            context: HashMap::new(),
+        }
+    }
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+pub(crate) struct AdminData {
+    pub(crate) name: String,
+    pub(crate) password: String,
+    pub(crate) shutdown_code: usize,
+}
+impl AdminData {
+    fn new() -> Self {
+        Self {
+        name: String::new(),
+        password: String::new(),
+        shutdown_code: 0,
+    }
+}
+}
+
+// #[cfg_attr(test, derive(Debug))]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct Server {
+    pub(crate) help: HelpData,
+    pub(crate) admin: AdminData,
     pub max_count_of_evictor_list: usize,
     pub max_count_of_connection: usize,
     pub serve_count_by_adapter: usize,
@@ -63,6 +103,8 @@ impl Server {
                 warn!("{}", e.to_string());
                 info!("server use default configuration");
                 Self {
+                    help: HelpData::new(),
+                    admin: AdminData::new(),
                     max_count_of_evictor_list: 5,
                     max_count_of_connection: 10,
                     serve_count_by_adapter: 3,
@@ -94,6 +136,7 @@ cfg_client! {
 #[cfg_attr(test, derive(Debug))]
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct Client {
+    pub admin_cookie: String,
     pub token_count_by_terminal: usize,
     pub callback_count_by_terminal: usize,
     pub invoke_timeout_in_terminal: u64,
@@ -110,6 +153,7 @@ impl Client {
                 warn!("{}", e.to_string());
                 info!("client use default configuration");
                 Self {
+                    admin_cookie: String::new(),
                     token_count_by_terminal: 2,
                     callback_count_by_terminal: 2,
                     invoke_timeout_in_terminal: 5000,

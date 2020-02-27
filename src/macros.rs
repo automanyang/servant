@@ -33,10 +33,10 @@ macro_rules! cfg_server_or_client {
     }
 }
 
-macro_rules! cfg_gateway_entity {
+macro_rules! cfg_help_entity {
     ($($item:item)*) => {
         $(
-            #[cfg(feature = "gateway_entity")]
+            #[cfg(feature = "help_entity")]
             $item
         )*
     }

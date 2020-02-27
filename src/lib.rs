@@ -2,16 +2,20 @@
 
 #[macro_use]
 mod macros;
+#[macro_use]
+mod utilities;
 
-extern crate async_std;
-extern crate bincode;
-extern crate futures;
-extern crate futures_codec;
-extern crate serde;
+// extern crate async_std;
+// extern crate bincode;
+// extern crate futures;
+// extern crate futures_codec;
+// extern crate serde;
 extern crate servant_codec as codec;
-extern crate servant_log;
+// extern crate servant_log;
 
 // --
+
+pub use utilities::*;
 
 cfg_server_or_client! {
     extern crate servant_macro;
@@ -21,7 +25,6 @@ cfg_server_or_client! {
     pub use servant_macro::notify_interface;
 
     mod config;
-    mod utilities;
     mod servant;
     mod sync;
     mod task;
@@ -48,9 +51,9 @@ cfg_client! {
     pub use {client::Client, terminal::Terminal};
 }
 
-cfg_gateway_entity! {
-    mod gateway;
-    pub use gateway::{GatewayProxy, GatewayEntity, GatewayServant};
+cfg_help_entity! {
+    mod help;
+    pub use help::{HelpProxy, HelpServant};
 }
 
 cfg_factory_entity! {

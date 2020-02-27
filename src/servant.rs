@@ -61,7 +61,7 @@ impl std::fmt::Display for Oid {
 // --
 
 pub type UserCookie = usize;
-type ConnectionId = SocketAddr;
+pub type ConnectionId = SocketAddr;
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Context {
@@ -94,6 +94,7 @@ cfg_server! {
     pub(crate) type ServantEntity = Arc<Mutex<Box<dyn Servant + Send>>>;
     pub(crate) type ReportServantEntity = Arc<Mutex<Box<dyn ReportServant + Send>>>;
     pub(crate) type WatchServantEntity = Arc<Mutex<Box<dyn WatchServant + Send>>>;
+    // pub(crate) type HelpServantEntity = Arc<Mutex<Box<dyn WatchServant + Send>>>;
 
     #[derive(Clone)]
     struct ServantRecord {
@@ -104,6 +105,7 @@ cfg_server! {
     struct _ServantRegister {
         servants: HashMap<Oid, ServantRecord>,
         report_servants: HashMap<Oid, ReportServantEntity>,
+        // help: Option<HelpServantEntity>,
         watch: Option<WatchServantEntity>,
         evictor: List<Oid>,
         freeze: Freeze,
@@ -116,11 +118,20 @@ cfg_server! {
             Self(Arc::new(Mutex::new(_ServantRegister {
                 servants: HashMap::new(),
                 report_servants: HashMap::new(),
+                // help: None,
                 watch: None,
                 evictor: List::new(max_count_of_evictor_list),
                 freeze: Freeze::new(Box::new(MemoryDb::new())),
             })))
         }
+        // pub async fn set_help_servant(&self, help: HelpServantEntity) -> Option<HelpServantEntity> {
+        //     let mut g = self.0.lock().await;
+        //     g.help.replace(help)
+        // }
+        // pub(crate) async fn help_servant(&self) -> Option<HelpServantEntity> {
+        //     let g = self.0.lock().await;
+        //     g.help.as_ref().map(Clone::clone)
+        // }
         pub async fn set_watch_servant(&self, watch: WatchServantEntity) -> Option<WatchServantEntity> {
             let mut g = self.0.lock().await;
             g.watch.replace(watch)
@@ -128,6 +139,10 @@ cfg_server! {
         pub(crate) async fn watch_servant(&self) -> Option<WatchServantEntity> {
             let g = self.0.lock().await;
             g.watch.as_ref().map(Clone::clone)
+        }
+        pub(crate) async fn servants(&self) -> Vec<Oid> {
+            let g = self.0.lock().await;
+            g.servants.keys().map(|v| v.clone()).collect()
         }
         pub(crate) async fn find_servant(&self, oid: &Oid) -> Option<ServantEntity> {
             let mut g = self.0.lock().await;
@@ -151,6 +166,10 @@ cfg_server! {
             } else {
                 None
             }
+        }
+        pub(crate) async fn report_servants(&self) -> Vec<Oid> {
+            let g = self.0.lock().await;
+            g.report_servants.keys().map(|v| v.clone()).collect()
         }
         pub(crate) async fn find_report_servant(&self, oid: &Oid) -> Option<ReportServantEntity> {
             let g = self.0.lock().await;
@@ -195,14 +214,14 @@ cfg_server! {
             let mut g = self.0.lock().await;
             g.report_servants.insert(oid, entity)
         }
-        pub async fn export_servants(&self) -> Vec<Oid> {
-            let g = self.0.lock().await;
-            g.servants.keys().map(|x| x.clone()).collect()
-        }
-        pub async fn export_report_servants(&self) -> Vec<Oid> {
-            let g = self.0.lock().await;
-            g.report_servants.keys().map(|x| x.clone()).collect()
-        }
+        // pub async fn export_servants(&self) -> Vec<Oid> {
+        //     let g = self.0.lock().await;
+        //     g.servants.keys().map(|x| x.clone()).collect()
+        // }
+        // pub async fn export_report_servants(&self) -> Vec<Oid> {
+        //     let g = self.0.lock().await;
+        //     g.report_servants.keys().map(|x| x.clone()).collect()
+        // }
         pub async fn enroll_in_freeze<F>(&self, category: &str, f: F) -> ServantResult<()>
         where
             F: Fn(&str, &[u8]) -> ServantEntity + 'static + Send,
