@@ -1,6 +1,6 @@
 // -- list.rs --
 
-pub use v3::{Pointer, List};
+pub use v3::{List, Pointer};
 
 // --
 
@@ -336,8 +336,8 @@ pub mod v2 {
 // --
 
 pub mod v3 {
-    use std::fmt;
     use std::cell::RefCell;
+    use std::fmt;
     use std::rc::Rc;
 
     // --
@@ -383,7 +383,6 @@ pub mod v3 {
         head: Option<Pointer<T>>,
         tail: Option<Pointer<T>>,
     }
-
     impl<T: Clone> List<T> {
         pub fn new(max_count: usize) -> Self {
             Self {
@@ -393,6 +392,18 @@ pub mod v3 {
                 tail: None,
             }
         }
+        pub fn len(&self) -> usize {
+            self.count
+        }
+        pub fn to_vec(&self) -> Vec<T> {
+            let mut v = Vec::new();
+            let mut node = self.head.clone();
+            while let Some(n) = node {
+                v.push(n.0.borrow().value.clone());
+                node = n.0.borrow().next.clone();
+            }
+            v
+        }
         pub fn evict(&mut self) -> Option<T> {
             if self.count < self.max_count {
                 None
@@ -400,7 +411,7 @@ pub mod v3 {
                 self.pop()
             }
         }
-        pub fn top(&mut self, node: Pointer<T>) {
+        pub fn top(&mut self, node: &Pointer<T>) {
             if let Some(ref pre) = node.0.borrow().pre {
                 // node不是head
                 if let Some(ref next) = node.0.borrow().next {
@@ -421,7 +432,7 @@ pub mod v3 {
                 node.0.borrow_mut().pre = None;
                 node.0.borrow_mut().next = self.head.clone();
                 // head改为node
-                self.head = Some(node);
+                self.head.replace(node.clone());
             }
         }
         pub fn push(&mut self, val: T) -> Pointer<T> {
@@ -532,15 +543,19 @@ mod test_v1 {
     }
 }
 
-
 #[cfg(test)]
-mod test_v3 {
+mod tests {
     use super::v3::*;
 
     #[test]
     fn test3() {
         let mut l = List::new(10);
 
+        // l.push(10);
+        // l.push(9);
+        // l.push(8);
+        // l.push(7);
+        // l.push(6);
         let n1 = l.push(1);
         dbg!(&l);
         let n4 = l.push(4);
@@ -552,15 +567,18 @@ mod test_v3 {
         let n3 = l.push(3);
         dbg!(&l);
 
-        l.top(n1);
+        let v = l.to_vec();
+        dbg!(&v);
+
+        l.top(&n1);
         dbg!(&l);
-        l.top(n5);
+        l.top(&n5);
         dbg!(&l);
-        l.top(n2.clone());
+        l.top(&n2);
         dbg!(&l);
-        l.top(n3.clone());
+        l.top(&n3);
         dbg!(&l);
-        l.top(n4.clone());
+        l.top(&n4);
         dbg!(&l);
 
         assert_eq!(Some(1), l.pop());

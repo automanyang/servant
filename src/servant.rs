@@ -1,6 +1,7 @@
 // -- servant.rs --
 
 use {
+    crate::utilities::BoolToOption,
     serde::{Deserialize, Serialize},
     std::{collections::HashMap, error::Error, net::SocketAddr},
 };
@@ -10,6 +11,7 @@ use {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ServantError {
     NoSupportSerializable,
+    DuplicateOid,
     Other(String),
 }
 
@@ -88,13 +90,12 @@ cfg_server! {
     use crate::{
         freeze::{Freeze, MemoryDb},
         utilities::{List, Pointer},
-        sync::{Arc, Mutex, MutexGuard},
+        sync::{Arc, Mutex},
     };
 
     pub(crate) type ServantEntity = Arc<Mutex<Box<dyn Servant + Send>>>;
     pub(crate) type ReportServantEntity = Arc<Mutex<Box<dyn ReportServant + Send>>>;
     pub(crate) type WatchServantEntity = Arc<Mutex<Box<dyn WatchServant + Send>>>;
-    // pub(crate) type HelpServantEntity = Arc<Mutex<Box<dyn WatchServant + Send>>>;
 
     #[derive(Clone)]
     struct ServantRecord {
@@ -102,12 +103,37 @@ cfg_server! {
         node: Option<Pointer<Oid>>,
     }
 
+    struct EvictorList {
+        max_count: usize,
+        list: List<Oid>,
+    }
+    impl EvictorList {
+        fn new(count: usize) -> Self {
+            Self {
+                max_count: count,
+                list: List::<Oid>::new(20),
+            }
+        }
+        fn push(&mut self, oid: &Oid) -> (Pointer<Oid>, Option<Oid>) {
+            if self.list.len() >= self.max_count {
+                (self.list.push(oid.clone()), self.list.pop())
+            } else {
+                (self.list.push(oid.clone()), None)
+            }
+        }
+        fn top(&mut self, p: &Pointer<Oid>) {
+            self.list.top(p)
+        }
+        fn to_vec(&self) -> Vec<Oid> {
+            self.list.to_vec()
+        }
+    }
+
     struct _ServantRegister {
         servants: HashMap<Oid, ServantRecord>,
         report_servants: HashMap<Oid, ReportServantEntity>,
-        // help: Option<HelpServantEntity>,
         watch: Option<WatchServantEntity>,
-        evictor: List<Oid>,
+        evictor: EvictorList,
         freeze: Freeze,
     }
 
@@ -118,20 +144,15 @@ cfg_server! {
             Self(Arc::new(Mutex::new(_ServantRegister {
                 servants: HashMap::new(),
                 report_servants: HashMap::new(),
-                // help: None,
                 watch: None,
-                evictor: List::new(max_count_of_evictor_list),
+                evictor: EvictorList::new(max_count_of_evictor_list),
                 freeze: Freeze::new(Box::new(MemoryDb::new())),
             })))
         }
-        // pub async fn set_help_servant(&self, help: HelpServantEntity) -> Option<HelpServantEntity> {
-        //     let mut g = self.0.lock().await;
-        //     g.help.replace(help)
-        // }
-        // pub(crate) async fn help_servant(&self) -> Option<HelpServantEntity> {
-        //     let g = self.0.lock().await;
-        //     g.help.as_ref().map(Clone::clone)
-        // }
+        pub(crate) async fn evictor_to_vec(&self) -> Vec<Oid> {
+            let g = self.0.lock().await;
+            g.evictor.to_vec()
+        }
         pub async fn set_watch_servant(&self, watch: WatchServantEntity) -> Option<WatchServantEntity> {
             let mut g = self.0.lock().await;
             g.watch.replace(watch)
@@ -145,24 +166,30 @@ cfg_server! {
             g.servants.keys().map(|v| v.clone()).collect()
         }
         pub(crate) async fn find_servant(&self, oid: &Oid) -> Option<ServantEntity> {
-            let mut g = self.0.lock().await;
-            if let Some(r) = g.servants.get(&oid).map(|s| s.clone()) {
-                if let Some(node) = r.node {
-                    g.evictor.top(node);
+            if let Some((servant, record)) = {
+                let mut g = self.0.lock().await;
+                if let Some(r) = g.servants.get(&oid).map(|s| s.clone()) {
+                    r.node.and_then(|v| Some(g.evictor.top(&v)));
+                    return Some(r.servant);
                 }
-                return Some(r.servant);
+                g.freeze.load(oid).map(|s| {
+                    let (node, abandoner_oid) = g.evictor.push(&oid);
+                    g.servants.insert(
+                        oid.clone(),
+                        ServantRecord {
+                            servant: s.clone(),
+                            node: Some(node),
+                        },
+                    );
+                    (s, abandoner_oid.and_then(|a| Some((a.clone(), g.servants.remove(&a).unwrap()))))
+                })
             }
-            if let Some(s) = g.freeze.load(oid) {
-                evict_last_one(&mut g).await;
-                let node = Some(g.evictor.push(oid.clone()));
-                g.servants.insert(
-                    oid.clone(),
-                    ServantRecord {
-                        servant: s.clone(),
-                        node,
-                    },
-                );
-                Some(s)
+            {
+                if let Some((oid, r)) = record {
+                    let v: Vec<u8> = r.servant.lock().await.dump().unwrap();
+                    self.0.lock().await.freeze.store(&oid, &v).unwrap();
+                }
+                Some(servant)
             } else {
                 None
             }
@@ -175,7 +202,7 @@ cfg_server! {
             let g = self.0.lock().await;
             g.report_servants.get(&oid).map(|s| s.clone())
         }
-        pub async fn add_servant(&self, category: &str, entity: ServantEntity) -> Option<ServantEntity> {
+        pub async fn add_servant(&self, category: &str, entity: ServantEntity) -> ServantResult<()> {
             let (oid, serializable) = {
                 let g = entity.lock().await;
                 (
@@ -184,23 +211,21 @@ cfg_server! {
                 )
             };
             let mut g = self.0.lock().await;
-            let node = if serializable {
-                evict_last_one(&mut g).await;
-                Some(g.evictor.push(oid.clone()))
-            } else {
-                None
-            };
-            if let Some(r) = g.servants.insert(
-                oid,
+            if g.servants.get(&oid).is_some() {
+                Err(ServantError::DuplicateOid)?;
+            }
+            let node = serializable.then2(|| {
+                let (node, _) = g.evictor.push(&oid);
+                node
+            });
+            g.servants.insert(
+                oid.clone(),
                 ServantRecord {
                     servant: entity,
                     node,
                 },
-            ) {
-                Some(r.servant)
-            } else {
-                None
-            }
+            );
+            Ok(())
         }
         pub async fn add_report_servant(
             &self,
@@ -214,39 +239,12 @@ cfg_server! {
             let mut g = self.0.lock().await;
             g.report_servants.insert(oid, entity)
         }
-        // pub async fn export_servants(&self) -> Vec<Oid> {
-        //     let g = self.0.lock().await;
-        //     g.servants.keys().map(|x| x.clone()).collect()
-        // }
-        // pub async fn export_report_servants(&self) -> Vec<Oid> {
-        //     let g = self.0.lock().await;
-        //     g.report_servants.keys().map(|x| x.clone()).collect()
-        // }
         pub async fn enroll_in_freeze<F>(&self, category: &str, f: F) -> ServantResult<()>
         where
             F: Fn(&str, &[u8]) -> ServantEntity + 'static + Send,
         {
             let mut g = self.0.lock().await;
             g.freeze.enroll(category, f)
-        }
-    }
-
-    #[allow(unused)]
-    async fn evict_all(mg: &mut MutexGuard<'_, _ServantRegister>) {
-        while let Some(abandoner) = mg.evictor.pop() {
-            if let Some(r) = mg.servants.remove(&abandoner) {
-                let v: Vec<u8> = { r.servant.lock().await.dump().unwrap() };
-                mg.freeze.store(&abandoner, &v).unwrap();
-            }
-        }
-    }
-
-    async fn evict_last_one(mg: &mut MutexGuard<'_, _ServantRegister>) {
-        if let Some(abandoner) = mg.evictor.evict() {
-            if let Some(r) = mg.servants.remove(&abandoner) {
-                let v: Vec<u8> = { r.servant.lock().await.dump().unwrap() };
-                mg.freeze.store(&abandoner, &v).unwrap();
-            }
         }
     }
 }

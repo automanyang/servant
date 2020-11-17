@@ -20,7 +20,7 @@ pub trait Admin {
     fn servants(&self) -> RemoteResult<Vec<Oid>>;
     fn report_servants(&self) -> RemoteResult<Vec<Oid>>;
     fn watch_servant(&self) -> RemoteResult<bool>;
-    // fn evictor_list(&self) -> RemoteResult<Vec<Oid>>;
+    fn evictor_list(&self) -> RemoteResult<Vec<Oid>>;
 }
 
 // --
@@ -110,6 +110,14 @@ impl Admin for AdminEntity {
         }
         task::block_on(async { 
             Ok(self.sr.watch_servant().await.is_some())
+        })
+    }
+    fn evictor_list(&self, ctx: Option<Context>) -> RemoteResult<Vec<Oid>> {
+        if !self.check_user_cookie(ctx) {
+            return Err(on_the_remote!("invalid context".to_owned()));
+        }
+        task::block_on(async { 
+            Ok(self.sr.evictor_to_vec().await)
         })
     }
 }

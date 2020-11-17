@@ -42,7 +42,7 @@ cfg_server! {
     mod freeze;
     mod adapter;
     mod server;
-    pub use {adapter::AdapterRegister, server::Server, servant::ServantRegister};
+    pub use {adapter::AdapterRegister, server::Server, crate:: servant::ServantRegister};
 }
 
 cfg_client! {

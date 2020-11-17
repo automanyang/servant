@@ -30,7 +30,7 @@ servant-log = { version = "^0.1.0", path = "../servant-log" }
 servant-codec = { version = "^0.1.0", path = "../servant-codec" }
 servant-macro = { version = "^0.1.0", path = "../servant-macro", optional = true }
 futures_codec = "^0.3.4"
-futures = "^0.3.1"
+futures = "^0.3.8"
 serde = { version = "^1.0", features = ["derive"]}
 bincode = { version = "^1.2.1" }
 serde_json = {version = "^1.0.44" }
@@ -40,8 +40,8 @@ rand = { version = "^0.7.3" }
 # lazy_static = "^1.4.0"
 
 [dependencies.async-std]
-# version = "^1.5"
-path = "../../async-std-1.5.0"
+version = "^1.7"
+# path = "../../async-std-1.5.0"
 features = ["default", "unstable"]
 # git = 'https://github.com/stjepang/async-std'
 # branch = 'new-scheduler'

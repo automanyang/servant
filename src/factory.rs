@@ -50,8 +50,8 @@ impl Factory for FactoryEntity {
         if let Some(f) = self.map.get(&category) {
             task::block_on(async {
                 let entity = f(&name);
-                self.sr.add_servant(&category, entity).await;
-            });
+                self.sr.add_servant(&category, entity).await
+            })?;
             Ok(oid)
         } else {
             Err(format!(

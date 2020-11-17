@@ -27,11 +27,7 @@ impl Storage for MemoryDb {
         Ok(())
     }
     fn load(&mut self, oid: &Oid) -> ServantResult<Vec<u8>> {
-        if let Some(v) = self.0.remove(oid) {
-            Ok(v)
-        } else {
-            Err(format!("{} dosen't exist in db.", oid).into())
-        }
+        self.0.remove(oid).ok_or(format!("{} dosen't exist in db.", oid).into())
     }
 }
 

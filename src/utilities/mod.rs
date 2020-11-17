@@ -7,6 +7,9 @@ cfg_server! {
 
 // --
 
+mod bool_to_option;
+pub use bool_to_option::BoolToOption;
+
 mod drop_guard;
 pub use drop_guard::DropGuard;
 

@@ -6,7 +6,7 @@ use {
         admin::{AdminEntity, AdminServant},
         config,
         help::{HelpEntity, HelpServant},
-        servant::ServantRegister,
+        servant::{ServantRegister, ServantResult},
         sync::{Arc, Mutex},
     },
     async_std::{
@@ -43,7 +43,7 @@ impl<T: Clone> Server<T> {
     pub fn config(&self) -> &config::Server {
         &self.config
     }
-    pub async fn need_admin(&self) {
+    pub async fn need_admin(&self) -> ServantResult<()> {
         // 生成AdminServant对象，并加入register中
         let admin = AdminEntity::new(
             &self.config.admin.password,
@@ -59,7 +59,7 @@ impl<T: Clone> Server<T> {
                     admin,
                 )))),
             )
-            .await;
+            .await
     }
     pub async fn need_help(&self) {
         let help = HelpEntity::new(&self.config.help);
@@ -103,7 +103,7 @@ impl<T: Clone> Server<T> {
                     None => SelectedValue::IncomingNone,
                 },
                 from_rx = rx.next().fuse() => match from_rx {
-                    Some(record) => unreachable!(),
+                    Some(_record) => unreachable!(),
                     None => SelectedValue::RxNone,
                 },
             };
